@@ -4,35 +4,26 @@
 #ifndef SJ_H
 #define SJ_H
 
-#include <stddef.h>
-#include <stdbool.h>
-
+#include <cstddef>
 typedef struct {
-    char *data, *cur, *end;
+    char const* data;
+    char const* cur;
+    char const* end;
     int depth;
-    char *error;
+    char const* error;
 } sj_Reader;
 
 typedef struct {
     int type;
-    char *start, *end;
+    char const* start;
+    char const* end;
     int depth;
 } sj_Value;
 
 enum { SJ_ERROR, SJ_END, SJ_ARRAY, SJ_OBJECT, SJ_NUMBER, SJ_STRING, SJ_BOOL, SJ_NULL };
 
-sj_Reader sj_reader(char *data, size_t len);
-sj_Value sj_read(sj_Reader *r);
-bool sj_iter_array(sj_Reader *r, sj_Value arr, sj_Value *val);
-bool sj_iter_object(sj_Reader *r, sj_Value obj, sj_Value *key, sj_Value *val);
-void sj_location(sj_Reader *r, int *line, int *col);
 
-#endif // #ifndef SJ_H
-
-#ifdef SJ_IMPL
-
-
-sj_Reader sj_reader(char *data, size_t len) {
+inline sj_Reader sj_reader(char const *data, size_t len) {
     return (sj_Reader){ .data = data, .cur = data, .end = data + len };
 }
 
@@ -42,7 +33,7 @@ static bool sj__is_number_cont(char c) {
         ||  c == 'e' || c == 'E' || c == '.' || c == '-' || c == '+';
 }
 
-static bool sj__is_string(char *cur, char *end, char *expect) {
+static bool sj__is_string(char const *cur, char const *end, char const *expect) {
     while (*expect) {
         if (cur == end || *cur != *expect) {
             return false;
@@ -53,7 +44,7 @@ static bool sj__is_string(char *cur, char *end, char *expect) {
 }
 
 
-sj_Value sj_read(sj_Reader *r) {
+inline sj_Value sj_read(sj_Reader *r) {
     sj_Value res;
 top:
     if (r->error) { return (sj_Value){ .type = SJ_ERROR, .start = r->cur, .end = r->cur }; }
@@ -124,7 +115,7 @@ static void sj__discard_until(sj_Reader *r, int depth) {
 }
 
 
-bool sj_iter_array(sj_Reader *r, sj_Value arr, sj_Value *val) {
+inline bool sj_iter_array(sj_Reader *r, sj_Value arr, sj_Value *val) {
     sj__discard_until(r, arr.depth);
     *val = sj_read(r);
     if (val->type == SJ_ERROR || val->type == SJ_END) { return false; }
@@ -132,7 +123,7 @@ bool sj_iter_array(sj_Reader *r, sj_Value arr, sj_Value *val) {
 }
 
 
-bool sj_iter_object(sj_Reader *r, sj_Value obj, sj_Value *key, sj_Value *val) {
+inline bool sj_iter_object(sj_Reader *r, sj_Value obj, sj_Value *key, sj_Value *val) {
     sj__discard_until(r, obj.depth);
     *key = sj_read(r);
     if (key->type == SJ_ERROR || key->type == SJ_END) { return false; }
@@ -143,9 +134,9 @@ bool sj_iter_object(sj_Reader *r, sj_Value obj, sj_Value *key, sj_Value *val) {
 }
 
 
-void sj_location(sj_Reader *r, int *line, int *col) {
+inline void sj_location(sj_Reader *r, int *line, int *col) {
     int ln = 1, cl = 1;
-    for (char *p = r->data; p != r->cur; p++) {
+    for (char const *p = r->data; p != r->cur; p++) {
         if (*p == '\n') { ln++; cl = 0; }
         cl++;
     }
@@ -153,4 +144,4 @@ void sj_location(sj_Reader *r, int *line, int *col) {
     *col = cl;
 }
 
-#endif // #ifdef SJ_IMPL
+#endif // #ifndef SJ_H

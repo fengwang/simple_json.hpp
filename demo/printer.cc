@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
     fseek(fp, 0, SEEK_END);
     int json_size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
-    char* json_text = calloc(json_size + 1, 1);
+    char* json_text = (char*)calloc(json_size + 1, 1);
     fread(json_text, 1, json_size, fp);
     fclose(fp);
 
