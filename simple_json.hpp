@@ -19,7 +19,7 @@ typedef struct {
     int depth;
 } sj_Value;
 
-enum { SJ_ERROR, SJ_END, SJ_ARRAY, SJ_OBJECT, SJ_NUMBER, SJ_STRING, SJ_BOOL, SJ_NULL };
+enum { SJ_END, SJ_ARRAY, SJ_OBJECT, SJ_NUMBER, SJ_STRING, SJ_BOOL, SJ_NULL };
 
 inline sj_Reader sj_reader(char const *data, size_t len) {
     sj_Reader r;
@@ -115,7 +115,7 @@ inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
 static void sj__discard_until(sj_Reader *r, int depth) {
     while (r->depth != depth) {
         auto val = sj_read(r);
-        if (!val.has_value() || val.value().type == SJ_ERROR) { break; }
+        if (!val.has_value()) { break; }
     }
 }
 
@@ -125,7 +125,7 @@ inline std::expected<bool, std::string> sj_iter_array(sj_Reader *r, sj_Value arr
     auto result = sj_read(r);
     if (!result.has_value()) { return std::unexpected(result.error()); }
     *val = result.value();
-    if (val->type == SJ_ERROR || val->type == SJ_END) { return false; }
+    if (val->type == SJ_END) { return false; }
     return true;
 }
 
@@ -135,13 +135,12 @@ inline std::expected<bool, std::string> sj_iter_object(sj_Reader *r, sj_Value ob
     auto key_result = sj_read(r);
     if (!key_result.has_value()) { return std::unexpected(key_result.error()); }
     *key = key_result.value();
-    if (key->type == SJ_ERROR || key->type == SJ_END) { return false; }
+    if (key->type == SJ_END) { return false; }
     
     auto val_result = sj_read(r);
     if (!val_result.has_value()) { return std::unexpected(val_result.error()); }
     *val = val_result.value();
     if (val->type == SJ_END)   { return std::unexpected("unexpected object end"); }
-    if (val->type == SJ_ERROR) { return false; }
     return true;
 }
 
