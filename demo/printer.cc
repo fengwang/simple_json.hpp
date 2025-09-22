@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define SJ_IMPL
 #include "../simple_json.hpp"
 
 
@@ -92,7 +91,7 @@ void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
         printf(val.start[0] == 't' ? "true" : "false");
         break;
         
-    case SJ_ERROR:
+    default:
         // This case should not happen with the new API, but keeping it for safety
         sj_location(r, &line, &col);
         fprintf(stderr, "\nerror: %d:%d: Unexpected error in value\n", line, col);
