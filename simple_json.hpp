@@ -107,7 +107,7 @@ inline sj_Value sj_read(sj_Reader *r) {
             if (sj__is_string(r->cur, r->end,  "null")) { r->cur += 4; break; }
             if (sj__is_string(r->cur, r->end,  "true")) { r->cur += 4; break; }
             if (sj__is_string(r->cur, r->end, "false")) { r->cur += 5; break; }
-            // fallthrough
+            [[fallthrough]];
 
         default:
             r->error = "unknown token";
