@@ -30,9 +30,11 @@ inline sj_Reader sj_reader(char const *data, size_t len) {
     return r;
 }
 
+
 static bool sj__is_number_cont(char c) {
     return (c >= '0' && c <= '9') ||  c == 'e' || c == 'E' || c == '.' || c == '-' || c == '+';
 }
+
 
 static bool sj__is_string(char const *cur, char const *end, char const *expect) {
     while (*expect) {
@@ -50,9 +52,7 @@ inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
     // Process tokens in a loop to avoid goto
     while (true) {
         // Handle EOF condition
-        if (r->cur == r->end) { 
-            return std::unexpected("unexpected eof"); 
-        }
+        if (r->cur == r->end) { return std::unexpected("unexpected eof"); }
         
         res.start = r->cur;
 
@@ -73,9 +73,7 @@ inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
             res.type = SJ_STRING;
             res.start = ++r->cur;
             for (;;) {
-                if ( r->cur == r->end) { 
-                    return std::unexpected("unclosed string"); 
-                }
+                if ( r->cur == r->end) { return std::unexpected("unclosed string"); }
                 if (*r->cur ==    '"') { break; }
                 if (*r->cur ==   '\\') { r->cur++; }
                 if ( r->cur != r->end) { r->cur++; }
@@ -84,9 +82,7 @@ inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
             return res;
 
         case '{': case '[':
-            if (r->depth > 1000000) { 
-                return std::unexpected("max depth reached!"); 
-            }
+            if (r->depth > 1000000) { return std::unexpected("max depth reached!"); }
             res.type = (*r->cur == '{') ? SJ_OBJECT : SJ_ARRAY;
             res.depth = ++r->depth;
             r->cur++;
@@ -94,9 +90,7 @@ inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
 
         case '}': case ']':
             res.type = SJ_END;
-            if (--r->depth < 0) {
-                return std::unexpected((*r->cur == '}') ? "stray '}'" : "stray ']'");
-            }
+            if (--r->depth < 0) { return std::unexpected((*r->cur == '}') ? "stray '}'" : "stray ']'"); }
             r->cur++;
             break;
 
@@ -119,12 +113,9 @@ inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
 
 
 static void sj__discard_until(sj_Reader *r, int depth) {
-    // Don't call sj_read initially, check condition first like in the original
     while (r->depth != depth) {
         auto val = sj_read(r);
-        if (!val.has_value() || val.value().type == SJ_ERROR) {
-            break;
-        }
+        if (!val.has_value() || val.value().type == SJ_ERROR) { break; }
     }
 }
 
@@ -132,9 +123,7 @@ static void sj__discard_until(sj_Reader *r, int depth) {
 inline std::expected<bool, std::string> sj_iter_array(sj_Reader *r, sj_Value arr, sj_Value *val) {
     sj__discard_until(r, arr.depth);
     auto result = sj_read(r);
-    if (!result.has_value()) {
-        return std::unexpected(result.error());
-    }
+    if (!result.has_value()) { return std::unexpected(result.error()); }
     *val = result.value();
     if (val->type == SJ_ERROR || val->type == SJ_END) { return false; }
     return true;
@@ -144,27 +133,23 @@ inline std::expected<bool, std::string> sj_iter_array(sj_Reader *r, sj_Value arr
 inline std::expected<bool, std::string> sj_iter_object(sj_Reader *r, sj_Value obj, sj_Value *key, sj_Value *val) {
     sj__discard_until(r, obj.depth);
     auto key_result = sj_read(r);
-    if (!key_result.has_value()) {
-        return std::unexpected(key_result.error());
-    }
+    if (!key_result.has_value()) { return std::unexpected(key_result.error()); }
     *key = key_result.value();
     if (key->type == SJ_ERROR || key->type == SJ_END) { return false; }
     
     auto val_result = sj_read(r);
-    if (!val_result.has_value()) {
-        return std::unexpected(val_result.error());
-    }
+    if (!val_result.has_value()) { return std::unexpected(val_result.error()); }
     *val = val_result.value();
     if (val->type == SJ_END)   { return std::unexpected("unexpected object end"); }
     if (val->type == SJ_ERROR) { return false; }
     return true;
 }
 
+
 inline void sj_location(sj_Reader *r, int *line, int *col) {
     int ln = 1, cl = 1;
     for (char const *p = r->data; p != r->cur; p++) {
-        if (*p == '\n') { ln++; cl = 0; }
-        cl++;
+        if (*p == '\n') { ln++; cl = 0; } cl++;
     }
     *line = ln;
     *col = cl;
