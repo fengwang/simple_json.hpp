@@ -28,6 +28,7 @@ void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
     switch (val.type) {
     case SJ_ARRAY:
         printf("[");
+        fflush(stdout);  // Force output to see what's happening
         while (true) {
             auto result = sj_iter_array(r, val, &v);
             if (!result.has_value()) {
@@ -47,6 +48,7 @@ void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
             print_indent(depth, minify);
         }
         printf("]");
+        fflush(stdout);  // Force output to see what's happening
         break;
 
     case SJ_OBJECT:

@@ -1,9 +1,6 @@
-// demonstrates iterating an array
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define SJ_IMPL
 #include "../simple_json.hpp"
 
 char const* json_text = "[ \"cat\", \"dog\", \"fox\", \"owl\" ]";
