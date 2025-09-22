@@ -26,21 +26,22 @@ void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
     int count = 0;
 
     switch (val.type) {
-error:
-    case SJ_ERROR:
-        sj_location(r, &line, &col);
-        fprintf(stderr, "\nerror: %d:%d: %s\n", line, col, r->error);
-        exit(EXIT_FAILURE);
-
     case SJ_ARRAY:
         printf("[");
-        while (sj_iter_array(r, val, &v)) {
+        while (true) {
+            auto result = sj_iter_array(r, val, &v);
+            if (!result.has_value()) {
+                sj_location(r, &line, &col);
+                fprintf(stderr, "\nerror: %d:%d: %s\n", line, col, result.error().c_str());
+                exit(EXIT_FAILURE);
+            }
+            if (!result.value()) break;
+            
             if (count++ > 0) { printf(","); }
             print_newline(minify);
             print_indent(depth + 1, minify);
             print_value(r, v, depth + 1, minify);
         }
-        if (r->error) { goto error; }
         if (count > 0) {
             print_newline(minify);
             print_indent(depth, minify);
@@ -50,7 +51,15 @@ error:
 
     case SJ_OBJECT:
         printf("{");
-        while (sj_iter_object(r, val, &k, &v)) {
+        while (true) {
+            auto result = sj_iter_object(r, val, &k, &v);
+            if (!result.has_value()) {
+                sj_location(r, &line, &col);
+                fprintf(stderr, "\nerror: %d:%d: %s\n", line, col, result.error().c_str());
+                exit(EXIT_FAILURE);
+            }
+            if (!result.value()) break;
+            
             if (count++ > 0) { printf(","); }
             print_newline(minify);
             print_indent(depth + 1, minify);
@@ -58,7 +67,6 @@ error:
             printf(": ");
             print_value(r, v, depth + 1, minify);
         }
-        if (r->error) { goto error; }
         if (count > 0) {
             print_newline(minify);
             print_indent(depth, minify);
@@ -81,6 +89,12 @@ error:
     case SJ_BOOL:
         printf(val.start[0] == 't' ? "true" : "false");
         break;
+        
+    case SJ_ERROR:
+        // This case should not happen with the new API, but keeping it for safety
+        sj_location(r, &line, &col);
+        fprintf(stderr, "\nerror: %d:%d: Unexpected error in value\n", line, col);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -110,7 +124,14 @@ int main(int argc, char **argv) {
     fclose(fp);
 
     sj_Reader r = sj_reader(json_text, json_size);
-    sj_Value val = sj_read(&r);
+    auto read_result = sj_read(&r);
+    if (!read_result.has_value()) {
+        int line, col;
+        sj_location(&r, &line, &col);
+        fprintf(stderr, "\nerror: %d:%d: %s\n", line, col, read_result.error().c_str());
+        exit(EXIT_FAILURE);
+    }
+    sj_Value val = read_result.value();
     print_value(&r, val, 0, minify);
 
     free(json_text);

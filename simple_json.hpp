@@ -2,12 +2,64 @@
 #define SIMPLE_JSON_HPP
 
 #include <cstddef>
+#include <string>
+#include <variant>
+#include <stdexcept>
+
+// Simple implementation of expected-like functionality
+template<typename T, typename E>
+class sj_expected {
+private:
+    std::variant<T, E> value_;
+    bool has_value_;
+
+public:
+    // Constructor for successful value
+    sj_expected(const T& value) : value_(value), has_value_(true) {}
+    
+    // Constructor for error
+    sj_expected(const E& error) : value_(error), has_value_(false) {}
+    
+    // Check if contains a value
+    bool has_value() const { return has_value_; }
+    
+    // Get the value (undefined behavior if not has_value())
+    const T& value() const { 
+        if (!has_value_) throw std::runtime_error("No value");
+        return std::get<T>(value_); 
+    }
+    
+    T& value() { 
+        if (!has_value_) throw std::runtime_error("No value");
+        return std::get<T>(value_); 
+    }
+    
+    // Get the error (undefined behavior if has_value())
+    const E& error() const { 
+        if (has_value_) throw std::runtime_error("No error");
+        return std::get<E>(value_); 
+    }
+    
+    E& error() { 
+        if (has_value_) throw std::runtime_error("No error");
+        return std::get<E>(value_); 
+    }
+    
+    // Implicit conversion to T (for compatibility with existing code)
+    operator T() const { return value(); }
+};
+
+// Helper function to create an expected with error
+template<typename T, typename E>
+sj_expected<T, E> sj_unexpected(const E& error) {
+    return sj_expected<T, E>(error);
+}
+
 typedef struct {
     char const* data;
     char const* cur;
     char const* end;
     int depth;
-    char const* error;
 } sj_Reader;
 
 typedef struct {
@@ -20,7 +72,12 @@ typedef struct {
 enum { SJ_ERROR, SJ_END, SJ_ARRAY, SJ_OBJECT, SJ_NUMBER, SJ_STRING, SJ_BOOL, SJ_NULL };
 
 inline sj_Reader sj_reader(char const *data, size_t len) {
-    return (sj_Reader){ .data = data, .cur = data, .end = data + len };
+    sj_Reader r;
+    r.data = data;
+    r.cur = data;
+    r.end = data + len;
+    r.depth = 0;
+    return r;
 }
 
 static bool sj__is_number_cont(char c) {
@@ -37,20 +94,14 @@ static bool sj__is_string(char const *cur, char const *end, char const *expect) 
 }
 
 
-inline sj_Value sj_read(sj_Reader *r) {
+inline sj_expected<sj_Value, std::string> sj_read(sj_Reader *r) {
     sj_Value res;
-    
-    // Handle error condition at the start
-    if (r->error) { 
-        return (sj_Value){ .type = SJ_ERROR, .start = r->cur, .end = r->cur }; 
-    }
     
     // Process tokens in a loop to avoid goto
     while (true) {
         // Handle EOF condition
         if (r->cur == r->end) { 
-            r->error = "unexpected eof"; 
-            return (sj_Value){ .type = SJ_ERROR, .start = r->cur, .end = r->cur }; 
+            return sj_unexpected<sj_Value, std::string>("unexpected eof"); 
         }
         
         res.start = r->cur;
@@ -73,8 +124,7 @@ inline sj_Value sj_read(sj_Reader *r) {
             res.start = ++r->cur;
             for (;;) {
                 if ( r->cur == r->end) { 
-                    r->error = "unclosed string"; 
-                    return (sj_Value){ .type = SJ_ERROR, .start = r->cur, .end = r->cur }; 
+                    return sj_unexpected<sj_Value, std::string>("unclosed string"); 
                 }
                 if (*r->cur ==    '"') { break; }
                 if (*r->cur ==   '\\') { r->cur++; }
@@ -85,8 +135,7 @@ inline sj_Value sj_read(sj_Reader *r) {
 
         case '{': case '[':
             if (r->depth > 1000000) { 
-                r->error = "max depth reached!"; 
-                return (sj_Value){ .type = SJ_ERROR, .start = r->cur, .end = r->cur }; 
+                return sj_unexpected<sj_Value, std::string>("max depth reached!"); 
             }
             res.type = (*r->cur == '{') ? SJ_OBJECT : SJ_ARRAY;
             res.depth = ++r->depth;
@@ -96,8 +145,7 @@ inline sj_Value sj_read(sj_Reader *r) {
         case '}': case ']':
             res.type = SJ_END;
             if (--r->depth < 0) {
-                r->error = (*r->cur == '}') ? "stray '}'" : "stray ']'";
-                return (sj_Value){ .type = SJ_ERROR, .start = r->cur, .end = r->cur }; 
+                return sj_unexpected<sj_Value, std::string>((*r->cur == '}') ? "stray '}'" : "stray ']'");
             }
             r->cur++;
             break;
@@ -110,8 +158,7 @@ inline sj_Value sj_read(sj_Reader *r) {
             [[fallthrough]];
 
         default:
-            r->error = "unknown token";
-            return (sj_Value){ .type = SJ_ERROR, .start = r->cur, .end = r->cur }; 
+            return sj_unexpected<sj_Value, std::string>("unknown token");
         }
         
         // If we reach here, it means we've processed a complete token
@@ -122,28 +169,43 @@ inline sj_Value sj_read(sj_Reader *r) {
 
 
 static void sj__discard_until(sj_Reader *r, int depth) {
-    sj_Value val;
-    val.type = SJ_NULL;
-    while (r->depth != depth && val.type != SJ_ERROR) {
-        val = sj_read(r);
+    // Don't call sj_read initially, check condition first like in the original
+    while (r->depth != depth) {
+        auto val = sj_read(r);
+        if (!val.has_value() || val.value().type == SJ_ERROR) {
+            break;
+        }
     }
 }
 
 
-inline bool sj_iter_array(sj_Reader *r, sj_Value arr, sj_Value *val) {
+inline sj_expected<bool, std::string> sj_iter_array(sj_Reader *r, sj_Value arr, sj_Value *val) {
     sj__discard_until(r, arr.depth);
-    *val = sj_read(r);
+    auto result = sj_read(r);
+    if (!result.has_value()) {
+        return sj_unexpected<bool, std::string>(result.error());
+    }
+    *val = result.value();
     if (val->type == SJ_ERROR || val->type == SJ_END) { return false; }
     return true;
 }
 
 
-inline bool sj_iter_object(sj_Reader *r, sj_Value obj, sj_Value *key, sj_Value *val) {
+inline sj_expected<bool, std::string> sj_iter_object(sj_Reader *r, sj_Value obj, sj_Value *key, sj_Value *val) {
     sj__discard_until(r, obj.depth);
-    *key = sj_read(r);
+    auto key_result = sj_read(r);
+    if (!key_result.has_value()) {
+        return sj_unexpected<bool, std::string>(key_result.error());
+    }
+    *key = key_result.value();
     if (key->type == SJ_ERROR || key->type == SJ_END) { return false; }
-    *val = sj_read(r);
-    if (val->type == SJ_END)   { r->error = "unexpected object end"; return false; }
+    
+    auto val_result = sj_read(r);
+    if (!val_result.has_value()) {
+        return sj_unexpected<bool, std::string>(val_result.error());
+    }
+    *val = val_result.value();
+    if (val->type == SJ_END)   { return sj_unexpected<bool, std::string>("unexpected object end"); }
     if (val->type == SJ_ERROR) { return false; }
     return true;
 }
