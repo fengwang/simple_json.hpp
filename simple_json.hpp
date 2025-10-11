@@ -5,6 +5,8 @@
 #include <string>
 #include <expected>
 
+enum class sj_Type { END, ARRAY, OBJECT, NUMBER, STRING, BOOL, NULL_ };
+
 typedef struct {
     char const* data;
     char const* cur;
@@ -13,13 +15,11 @@ typedef struct {
 } sj_Reader;
 
 typedef struct {
-    int type;
+    sj_Type type;
     char const* start;
     char const* end;
     int depth;
 } sj_Value;
-
-enum { SJ_END, SJ_ARRAY, SJ_OBJECT, SJ_NUMBER, SJ_STRING, SJ_BOOL, SJ_NULL };
 
 inline sj_Reader sj_reader(char const *data, size_t len) {
     sj_Reader r;
@@ -65,12 +65,12 @@ inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
 
         case '-': case '0': case '1': case '2': case '3': case '4':
         case '5': case '6': case '7': case '8': case '9':
-            res.type = SJ_NUMBER;
+            res.type = sj_Type::NUMBER;
             while (r->cur != r->end && sj__is_number_cont(*r->cur)) { r->cur++; }
             break;
 
         case '"':
-            res.type = SJ_STRING;
+            res.type = sj_Type::STRING;
             res.start = ++r->cur;
             for (;;) {
                 if ( r->cur == r->end) { return std::unexpected("unclosed string"); }
@@ -83,19 +83,19 @@ inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
 
         case '{': case '[':
             if (r->depth > 1000000) { return std::unexpected("max depth reached!"); }
-            res.type = (*r->cur == '{') ? SJ_OBJECT : SJ_ARRAY;
+            res.type = (*r->cur == '{') ? sj_Type::OBJECT : sj_Type::ARRAY;
             res.depth = ++r->depth;
             r->cur++;
             break;
 
         case '}': case ']':
-            res.type = SJ_END;
+            res.type = sj_Type::END;
             if (--r->depth < 0) { return std::unexpected((*r->cur == '}') ? "stray '}'" : "stray ']'"); }
             r->cur++;
             break;
 
         case 'n': case 't': case 'f':
-            res.type = (*r->cur == 'n') ? SJ_NULL : SJ_BOOL;
+            res.type = (*r->cur == 'n') ? sj_Type::NULL_ : sj_Type::BOOL;
             if (sj__is_string(r->cur, r->end,  "null")) { r->cur += 4; break; }
             if (sj__is_string(r->cur, r->end,  "true")) { r->cur += 4; break; }
             if (sj__is_string(r->cur, r->end, "false")) { r->cur += 5; break; }
@@ -125,7 +125,7 @@ inline std::expected<bool, std::string> sj_iter_array(sj_Reader *r, sj_Value arr
     auto result = sj_read(r);
     if (!result.has_value()) { return std::unexpected(result.error()); }
     *val = result.value();
-    if (val->type == SJ_END) { return false; }
+    if (val->type == sj_Type::END) { return false; }
     return true;
 }
 
@@ -135,12 +135,12 @@ inline std::expected<bool, std::string> sj_iter_object(sj_Reader *r, sj_Value ob
     auto key_result = sj_read(r);
     if (!key_result.has_value()) { return std::unexpected(key_result.error()); }
     *key = key_result.value();
-    if (key->type == SJ_END) { return false; }
+    if (key->type == sj_Type::END) { return false; }
     
     auto val_result = sj_read(r);
     if (!val_result.has_value()) { return std::unexpected(val_result.error()); }
     *val = val_result.value();
-    if (val->type == SJ_END)   { return std::unexpected("unexpected object end"); }
+    if (val->type == sj_Type::END)   { return std::unexpected("unexpected object end"); }
     return true;
 }
 

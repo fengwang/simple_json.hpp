@@ -25,7 +25,7 @@ void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
     int count = 0;
 
     switch (val.type) {
-    case SJ_ARRAY:
+    case sj_Type::ARRAY:
         printf("[");
         fflush(stdout);  // Force output to see what's happening
         while (true) {
@@ -50,7 +50,7 @@ void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
         fflush(stdout);  // Force output to see what's happening
         break;
 
-    case SJ_OBJECT:
+    case sj_Type::OBJECT:
         printf("{");
         while (true) {
             auto result = sj_iter_object(r, val, &k, &v);
@@ -75,19 +75,19 @@ void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
         printf("}");
         break;
 
-    case SJ_NUMBER:
+    case sj_Type::NUMBER:
         printf("%.*s", (int)(val.end-val.start), val.start);
         break;
 
-    case SJ_STRING:
+    case sj_Type::STRING:
         printf("\"%.*s\"", (int)(val.end-val.start), val.start);
         break;
 
-    case SJ_NULL:
+    case sj_Type::NULL_:
         printf("null");
         break;
 
-    case SJ_BOOL:
+    case sj_Type::BOOL:
         printf(val.start[0] == 't' ? "true" : "false");
         break;
         
