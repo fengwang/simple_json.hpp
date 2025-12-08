@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install g++-13 (C++23)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-13
+
+      - name: Build all targets
+        run: make CC=g++-13
+
+      - name: Run json_test
+        run: ./json_test
+
