@@ -8,7 +8,7 @@
 #include "../simple_json.hpp"
 
 
-char* json_text = "{\n"
+char const* json_text = "{\n"
     "    \"first_name\": \"John\",\n"
     "    \"last_name\": \"Smith\",\n"
     "    \"age\": 27,\n"
@@ -17,11 +17,11 @@ char* json_text = "{\n"
     "        \"city\": \"New York\",\n"
     "        \"state\": \"NY\",\n"
     "    },"
-    "    \"phone_numbers\": [ \"212 555-1234\", \"646 555-4567\" ],\n"
+"    \"phone_numbers\": [ \"212 555-1234\", \"646 555-4567\" ],\n"
     "}";
 
 
-bool eq(sj_Value val, char *s) {
+bool eq(sj_Value val, char const* s) {
     size_t len = val.end - val.start;
     return strlen(s) == len && !memcmp(s, val.start, len);
 }
@@ -46,7 +46,7 @@ int main(void) {
         else if (eq(key, "last_name"))  { print(val); }
         else if (eq(key, "age"))        { print(val); }
         else if (eq(key, "phone_numbers")) {
-            sj_Value v;
+            sj_Value v{};
             auto array_result = sj_iter_array(&r, val, &v);
             while (array_result.has_value() && array_result.value()) {
                 print(v);

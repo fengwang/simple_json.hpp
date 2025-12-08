@@ -6,17 +6,17 @@
 #include "../simple_json.hpp"
 
 
-char *json_text = "{ \"x\": 10, \"y\": 20, \"w\": 30, \"h\": 40 }";
+char const* json_text = "{ \"x\": 10, \"y\": 20, \"w\": 30, \"h\": 40 }";
 
 typedef struct { int x, y, w, h; } Rect;
 
-bool eq(sj_Value val, char *s) {
+bool eq(sj_Value val, char const* s) {
     size_t len = val.end - val.start;
     return strlen(s) == len && !memcmp(s, val.start, len);
 }
 
 int main(void) {
-    Rect rect = {0};
+    Rect rect{0, 0, 0, 0};
 
     sj_Reader r = sj_reader(json_text, strlen(json_text));
     auto read_result = sj_read(&r);

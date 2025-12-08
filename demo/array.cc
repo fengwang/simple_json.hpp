@@ -14,9 +14,9 @@ int main(void) {
     }
     sj_Value arr = read_result.value();
     
-    printf("Array type: %d, depth: %d\n", arr.type, arr.depth);
+    printf("Array type: %d, depth: %d\n", static_cast<int>(arr.type), arr.depth);
 
-    sj_Value val;
+    sj_Value val{};
     int count = 0;
     while (true) {
         auto iter_result = sj_iter_array(&r, arr, &val);

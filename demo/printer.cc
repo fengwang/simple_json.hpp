@@ -100,7 +100,7 @@ void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
 }
 
 
-void error(char *msg) {
+void error(char const* msg) {
     fprintf(stderr, "error: %s\n", msg);
     exit(EXIT_FAILURE);
 }
