@@ -14,11 +14,11 @@ make
 ```
 
 This produces:
-- `array`        – simple array iteration demo  
-- `object`       – object iteration and skipping fields  
-- `printer`      – pretty-print / minify a JSON file  
-- `rect`         – load a small struct from JSON  
-- `json_test`    – exercises the `sj::json` API  
+- `array`        – simple array iteration demo
+- `object`       – object iteration and skipping fields
+- `printer`      – pretty-print / minify a JSON file
+- `rect`         – load a small struct from JSON
+- `json_test`    – exercises the `sj::json` API
 - `json_container` – demonstrates `sj::json`’s container-like operations
 
 ## The `sj::json` data type
@@ -193,6 +193,51 @@ if (o.find("foo") != o.end()) { /* found via iterator */ }
 auto count_foo = o.count("foo"); // 1
 o.erase("foo");                  // remove entry if present
 ```
+
+### STL container conversions
+
+`sj::json` can be constructed directly from many STL containers:
+
+- Sequence / set-like containers become JSON arrays (order follows container iteration):
+
+```cpp
+std::vector<int> c_vector {1, 2, 3, 4};
+sj::json j_vec(c_vector); // [1, 2, 3, 4]
+
+std::deque<double> c_deque {1.2, 2.3, 3.4, 5.6};
+sj::json j_deque(c_deque); // [1.2, 2.3, 3.4, 5.6]
+
+std::list<bool> c_list {true, true, false, true};
+sj::json j_list(c_list); // [true, true, false, true]
+
+std::forward_list<std::int64_t> c_flist {
+    12345678909876LL, 23456789098765LL, 34567890987654LL, 45678909876543LL
+};
+sj::json j_flist(c_flist); // [12345678909876, 23456789098765, 34567890987654, 45678909876543]
+
+std::array<unsigned long, 4> c_array {{1, 2, 3, 4}};
+sj::json j_array(c_array); // [1, 2, 3, 4]
+```
+
+- Set-like containers (`std::set`, `std::multset`, `std::unordered_set`,
+  `std::unordered_multiset`) also become arrays; multiplicity follows
+  the container (sets deduplicate, multisets keep duplicates).
+
+- Map-like containers become JSON objects when the key can be converted
+  to `std::string` and the value is JSON-convertible:
+
+```cpp
+std::map<std::string, int> c_map {{"one", 1}, {"two", 2}, {"three", 3}};
+sj::json j_map(c_map); // {"one":1, "three":3, "two":2}
+
+std::unordered_map<const char*, double> c_umap {
+    {"one", 1.2}, {"two", 2.3}, {"three", 3.4}
+};
+sj::json j_umap(c_umap); // {"one":1.2, "two":2.3, "three":3.4}
+```
+
+For multi-map containers, only one value per key is kept in the JSON
+object; which one depends on the container’s iteration order.
 
 ### Pretty-printing and streaming
 

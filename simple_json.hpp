@@ -218,6 +218,22 @@ namespace sj {
      object
  };
 
+ namespace detail {
+
+ template <typename T, typename = void>
+ struct is_pair_like : std::false_type {};
+
+ template <typename T>
+ struct is_pair_like<T, std::void_t<typename T::first_type, typename T::second_type>>
+     : std::true_type {};
+
+ template <typename K>
+ inline std::string key_to_string(K const& k) {
+     return std::string(k);
+ }
+
+ } // namespace detail
+
  /// First‑class JSON value type built on top of the streaming reader.
  class json {
  public:
@@ -490,6 +506,72 @@ namespace sj {
          auto& obj = std::get<object_type>(value_);
          for (auto const& kv : init) {
              obj.emplace(kv.first, kv.second);
+         }
+     }
+
+     /// Construct a JSON array from a generic container of elements.
+     ///
+     /// This enables construction from standard sequence and set-like
+     /// containers such as `std::vector`, `std::deque`, `std::list`,
+     /// `std::forward_list`, `std::array`, `std::set`, `std::multiset`,
+     /// `std::unordered_set`, and `std::unordered_multiset`, as long as
+     /// the contained value type is itself convertible to `sj::json`.
+     template <typename Container,
+               typename C = std::decay_t<Container>,
+               typename V = typename C::value_type,
+               std::enable_if_t<
+                   !std::is_same_v<C, json> &&
+                   !std::is_same_v<C, array_type> &&
+                   !std::is_same_v<C, object_type> &&
+                   !detail::is_pair_like<V>::value,
+                   int> = 0>
+     json(Container const& c)
+         : value_(array_type{}) {
+         auto& arr = std::get<array_type>(value_);
+         for (auto const& el : c) {
+             using E = std::decay_t<decltype(el)>;
+             if constexpr (std::is_same_v<E, boolean_type>) {
+                 arr.emplace_back(json(el));
+             } else if constexpr (std::is_integral_v<E>) {
+                 arr.emplace_back(json(static_cast<integer_type>(el)));
+             } else {
+                 arr.emplace_back(json(el));
+             }
+         }
+     }
+
+     /// Construct a JSON object from a generic associative container of
+     /// key/value pairs.
+     ///
+     /// This enables construction from `std::map`, `std::unordered_map`,
+     /// `std::multimap`, and `std::unordered_multimap` if the key type
+     /// can be used to construct an `std::string` and the mapped type is
+     /// convertible to `sj::json`. For multi-maps, only one value per
+     /// key is kept in the resulting JSON object; which one depends on
+     /// the container’s iteration order.
+     template <typename Container,
+               typename C = std::decay_t<Container>,
+               typename V = typename C::value_type,
+               std::enable_if_t<
+                   !std::is_same_v<C, json> &&
+                   !std::is_same_v<C, array_type> &&
+                   !std::is_same_v<C, object_type> &&
+                   detail::is_pair_like<V>::value,
+                   int> = 0>
+     json(Container const& c)
+         : value_(object_type{}) {
+         auto& obj = std::get<object_type>(value_);
+         for (auto const& kv : c) {
+             std::string key = detail::key_to_string(kv.first);
+             using M = std::decay_t<decltype(kv.second)>;
+             if constexpr (std::is_same_v<M, boolean_type>) {
+                 obj.emplace(std::move(key), json(kv.second));
+             } else if constexpr (std::is_integral_v<M>) {
+                 obj.emplace(std::move(key),
+                             json(static_cast<integer_type>(kv.second)));
+             } else {
+                 obj.emplace(std::move(key), json(kv.second));
+             }
          }
      }
 
