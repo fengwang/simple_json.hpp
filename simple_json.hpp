@@ -1,12 +1,20 @@
 #ifndef SIMPLE_JSON_HPP
 #define SIMPLE_JSON_HPP
 
- #include <cstddef>
- #include <string>
- #include <expected>
+#include <cstddef>
+#include <string>
+#include <string_view>
+#include <expected>
+#include <variant>
+#include <vector>
+#include <map>
+#include <istream>
+#include <sstream>
+#include <stdexcept>
+#include <cstdlib>
 
- /// Simple streaming JSON reader utilities.
- namespace sj {
+/// Simple streaming JSON reader utilities.
+namespace sj {
 
  /// JSON token type produced by the reader.
  enum class Type { END, ARRAY, OBJECT, NUMBER, STRING, BOOL, NULL_ };
@@ -192,6 +200,227 @@
      *line = ln;
      *col = cl;
  }
+
+ /// First‑class JSON value type built on top of the streaming reader.
+ class json {
+ public:
+     /// Type used to represent JSON arrays.
+     using array_type = std::vector<json>;
+     /// Type used to represent JSON objects.
+     using object_type = std::map<std::string, json>;
+     /// Type used to represent JSON strings.
+     using string_type = std::string;
+     /// Type used to represent JSON booleans.
+     using boolean_type = bool;
+     /// Type used to represent JSON numbers.
+     using number_type = double;
+     /// Underlying variant storage type.
+     using value_type = std::variant<std::nullptr_t, boolean_type, number_type, string_type, array_type, object_type>;
+
+     /// Construct a null JSON value.
+     json() : value_(nullptr) {}
+     /// Construct a null JSON value.
+     json(std::nullptr_t) : value_(nullptr) {}
+     /// Construct a boolean JSON value.
+     json(boolean_type b) : value_(b) {}
+     /// Construct a numeric JSON value from a floating‑point number.
+     json(number_type n) : value_(n) {}
+     /// Construct a numeric JSON value from an integer.
+     json(int n) : value_(static_cast<number_type>(n)) {}
+     /// Construct a string JSON value.
+     json(string_type const& s) : value_(s) {}
+     /// Construct a string JSON value.
+     json(string_type&& s) : value_(std::move(s)) {}
+     /// Construct a string JSON value from a null‑terminated C string.
+     json(char const* s) : value_(string_type{s}) {}
+     /// Construct an array JSON value.
+     json(array_type const& a) : value_(a) {}
+     /// Construct an array JSON value.
+     json(array_type&& a) : value_(std::move(a)) {}
+     /// Construct an object JSON value.
+     json(object_type const& o) : value_(o) {}
+     /// Construct an object JSON value.
+     json(object_type&& o) : value_(std::move(o)) {}
+     /// Construct an object JSON value from an initializer list of key/value pairs.
+     json(std::initializer_list<std::pair<const std::string, json>> init)
+         : value_(object_type{}) {
+         auto& obj = std::get<object_type>(value_);
+         for (auto const& kv : init) {
+             obj.emplace(kv.first, kv.second);
+         }
+     }
+
+     /// Defaulted copy constructor.
+     json(json const&) = default;
+     /// Defaulted move constructor.
+     json(json&&) noexcept = default;
+     /// Defaulted copy assignment.
+     json& operator=(json const&) = default;
+     /// Defaulted move assignment.
+     json& operator=(json&&) noexcept = default;
+
+     /// Return true if this value is null.
+     bool is_null() const { return std::holds_alternative<std::nullptr_t>(value_); }
+     /// Return true if this value is a boolean.
+     bool is_boolean() const { return std::holds_alternative<boolean_type>(value_); }
+     /// Return true if this value is a number.
+     bool is_number() const { return std::holds_alternative<number_type>(value_); }
+     /// Return true if this value is a string.
+     bool is_string() const { return std::holds_alternative<string_type>(value_); }
+     /// Return true if this value is an array.
+     bool is_array() const { return std::holds_alternative<array_type>(value_); }
+     /// Return true if this value is an object.
+     bool is_object() const { return std::holds_alternative<object_type>(value_); }
+
+     /// Access the contained boolean. Precondition: `is_boolean()`.
+     boolean_type as_boolean() const { return std::get<boolean_type>(value_); }
+     /// Access the contained number. Precondition: `is_number()`.
+     number_type as_number() const { return std::get<number_type>(value_); }
+     /// Access the contained string. Precondition: `is_string()`.
+     string_type const& as_string() const { return std::get<string_type>(value_); }
+     /// Access the contained array. Precondition: `is_array()`.
+     array_type const& as_array() const { return std::get<array_type>(value_); }
+     /// Access the contained object. Precondition: `is_object()`.
+     object_type const& as_object() const { return std::get<object_type>(value_); }
+
+     /// Access or create an object member by key.
+     ///
+     /// If this value is null, it is first converted to an empty object.
+     /// Precondition (otherwise): `is_object()`.
+     json& operator[](std::string const& key) {
+         if (!is_object()) {
+             value_ = object_type{};
+         }
+         return std::get<object_type>(value_)[key];
+     }
+
+     /// Access or create an object member by key.
+     json& operator[](char const* key) {
+         return (*this)[std::string(key)];
+     }
+
+     /// Access an object member by key (const). Precondition: `is_object()`.
+     json const& at(std::string const& key) const {
+         return std::get<object_type>(value_).at(key);
+     }
+
+     /// Access an array element by index. Precondition: `is_array()`.
+     json& operator[](std::size_t idx) {
+         return std::get<array_type>(value_)[idx];
+     }
+
+     /// Access an array element by index (const). Precondition: `is_array()`.
+     json const& at(std::size_t idx) const {
+         return std::get<array_type>(value_).at(idx);
+     }
+
+     /// Compare two JSON values for equality.
+     friend bool operator==(json const&, json const&) = default;
+
+ private:
+     value_type value_;
+ };
+
+ namespace detail {
+
+ /// Parse a JSON value from the current token.
+ inline json parse_value(Reader& r, Value v);
+
+ /// Parse a JSON array from the current position.
+ inline json parse_array(Reader& r, Value arr) {
+     json::array_type out;
+     Value element{};
+     while (true) {
+         auto result = iter_array(&r, arr, &element);
+         if (!result.has_value()) {
+             throw std::runtime_error(result.error());
+         }
+         if (!result.value()) {
+             break;
+         }
+         out.push_back(parse_value(r, element));
+     }
+     return json(std::move(out));
+ }
+
+ /// Parse a JSON object from the current position.
+ inline json parse_object(Reader& r, Value obj) {
+     json::object_type out;
+     Value key{};
+     Value val{};
+     while (true) {
+         auto result = iter_object(&r, obj, &key, &val);
+         if (!result.has_value()) {
+             throw std::runtime_error(result.error());
+         }
+         if (!result.value()) {
+             break;
+         }
+         if (key.type != Type::STRING) {
+             throw std::runtime_error("object key is not a string");
+         }
+         std::string k{key.start, key.end};
+         out.emplace(std::move(k), parse_value(r, val));
+     }
+     return json(std::move(out));
+ }
+
+ inline json parse_value(Reader& r, Value v) {
+     switch (v.type) {
+     case Type::NULL_:
+         return json(nullptr);
+     case Type::BOOL:
+         return json(v.start[0] == 't');
+     case Type::NUMBER: {
+         std::string num_str{v.start, v.end};
+         char* end_ptr = nullptr;
+         char const* c_str = num_str.c_str();
+         double value = std::strtod(c_str, &end_ptr);
+         if (end_ptr != c_str + num_str.size()) {
+             throw std::runtime_error("invalid number literal");
+         }
+         return json(value);
+     }
+     case Type::STRING:
+         return json(std::string{v.start, v.end});
+     case Type::ARRAY:
+         return parse_array(r, v);
+     case Type::OBJECT:
+         return parse_object(r, v);
+     case Type::END:
+     default:
+         throw std::runtime_error("unexpected token");
+     }
+ }
+
+ } // namespace detail
+
+ /// Parse a JSON document from a character buffer.
+ inline json parse(std::string_view sv) {
+     Reader r = reader(sv.data(), sv.size());
+     auto first = read(&r);
+     if (!first.has_value()) {
+         throw std::runtime_error(first.error());
+     }
+     return detail::parse_value(r, first.value());
+ }
+
+ /// Parse a JSON document from an input stream.
+ inline json parse(std::istream& is) {
+     std::ostringstream oss;
+     oss << is.rdbuf();
+     return parse(oss.str());
+ }
+
+ /// User‑defined literal for parsing JSON from string literals.
+ namespace literals {
+
+ /// Parse a JSON value from a string literal.
+ inline json operator""_json(char const* s, std::size_t n) {
+     return parse(std::string_view{s, n});
+ }
+
+ } // namespace literals
 
  } // namespace sj
 
