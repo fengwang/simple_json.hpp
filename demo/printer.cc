@@ -19,19 +19,19 @@ void print_newline(bool minify) {
     printf("\n");
 }
 
-void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
+void print_value(sj::Reader *r, sj::Value val, int depth, bool minify) {
     int line, col;
-    sj_Value k, v;
+    sj::Value k, v;
     int count = 0;
 
     switch (val.type) {
-    case sj_Type::ARRAY:
+    case sj::Type::ARRAY:
         printf("[");
         fflush(stdout);  // Force output to see what's happening
         while (true) {
-            auto result = sj_iter_array(r, val, &v);
+            auto result = sj::iter_array(r, val, &v);
             if (!result.has_value()) {
-                sj_location(r, &line, &col);
+                sj::location(r, &line, &col);
                 fprintf(stderr, "\nerror: %d:%d: %s\n", line, col, result.error().c_str());
                 exit(EXIT_FAILURE);
             }
@@ -50,12 +50,12 @@ void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
         fflush(stdout);  // Force output to see what's happening
         break;
 
-    case sj_Type::OBJECT:
+    case sj::Type::OBJECT:
         printf("{");
         while (true) {
-            auto result = sj_iter_object(r, val, &k, &v);
+            auto result = sj::iter_object(r, val, &k, &v);
             if (!result.has_value()) {
-                sj_location(r, &line, &col);
+                sj::location(r, &line, &col);
                 fprintf(stderr, "\nerror: %d:%d: %s\n", line, col, result.error().c_str());
                 exit(EXIT_FAILURE);
             }
@@ -75,25 +75,25 @@ void print_value(sj_Reader *r, sj_Value val, int depth, bool minify) {
         printf("}");
         break;
 
-    case sj_Type::NUMBER:
+    case sj::Type::NUMBER:
         printf("%.*s", (int)(val.end-val.start), val.start);
         break;
 
-    case sj_Type::STRING:
+    case sj::Type::STRING:
         printf("\"%.*s\"", (int)(val.end-val.start), val.start);
         break;
 
-    case sj_Type::NULL_:
+    case sj::Type::NULL_:
         printf("null");
         break;
 
-    case sj_Type::BOOL:
+    case sj::Type::BOOL:
         printf(val.start[0] == 't' ? "true" : "false");
         break;
         
     default:
         // This case should not happen with the new API, but keeping it for safety
-        sj_location(r, &line, &col);
+        sj::location(r, &line, &col);
         fprintf(stderr, "\nerror: %d:%d: Unexpected error in value\n", line, col);
         exit(EXIT_FAILURE);
     }
@@ -124,15 +124,15 @@ int main(int argc, char **argv) {
     fread(json_text, 1, json_size, fp);
     fclose(fp);
 
-    sj_Reader r = sj_reader(json_text, json_size);
-    auto read_result = sj_read(&r);
+    sj::Reader r = sj::reader(json_text, json_size);
+    auto read_result = sj::read(&r);
     if (!read_result.has_value()) {
         int line, col;
-        sj_location(&r, &line, &col);
+        sj::location(&r, &line, &col);
         fprintf(stderr, "\nerror: %d:%d: %s\n", line, col, read_result.error().c_str());
         exit(EXIT_FAILURE);
     }
-    sj_Value val = read_result.value();
+    sj::Value val = read_result.value();
     print_value(&r, val, 0, minify);
 
     free(json_text);

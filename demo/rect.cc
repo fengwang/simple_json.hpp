@@ -10,7 +10,7 @@ char const* json_text = "{ \"x\": 10, \"y\": 20, \"w\": 30, \"h\": 40 }";
 
 typedef struct { int x, y, w, h; } Rect;
 
-bool eq(sj_Value val, char const* s) {
+bool eq(sj::Value val, char const* s) {
     size_t len = val.end - val.start;
     return strlen(s) == len && !memcmp(s, val.start, len);
 }
@@ -18,22 +18,22 @@ bool eq(sj_Value val, char const* s) {
 int main(void) {
     Rect rect{0, 0, 0, 0};
 
-    sj_Reader r = sj_reader(json_text, strlen(json_text));
-    auto read_result = sj_read(&r);
+    sj::Reader r = sj::reader(json_text, strlen(json_text));
+    auto read_result = sj::read(&r);
     if (!read_result.has_value()) {
         printf("Error: %s\n", read_result.error().c_str());
         return 1;
     }
-    sj_Value obj = read_result.value();
+    sj::Value obj = read_result.value();
 
-    sj_Value key, val;
-    auto iter_result = sj_iter_object(&r, obj, &key, &val);
+    sj::Value key, val;
+    auto iter_result = sj::iter_object(&r, obj, &key, &val);
     while (iter_result.has_value() && iter_result.value()) {
         if (eq(key, "x")) { rect.x = atoi(val.start); }
         if (eq(key, "y")) { rect.y = atoi(val.start); }
         if (eq(key, "w")) { rect.w = atoi(val.start); }
         if (eq(key, "h")) { rect.h = atoi(val.start); }
-        iter_result = sj_iter_object(&r, obj, &key, &val);
+        iter_result = sj::iter_object(&r, obj, &key, &val);
     }
     
     if (!iter_result.has_value()) {
