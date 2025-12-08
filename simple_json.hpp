@@ -7,19 +7,19 @@
 
 enum class sj_Type { END, ARRAY, OBJECT, NUMBER, STRING, BOOL, NULL_ };
 
-typedef struct {
+struct sj_Reader {
     char const* data;
     char const* cur;
     char const* end;
     int depth;
-} sj_Reader;
+};// struct sj_Reader;
 
-typedef struct {
+struct sj_Value {
     sj_Type type;
     char const* start;
     char const* end;
     int depth;
-} sj_Value;
+}; // struct sj_Value;
 
 inline sj_Reader sj_reader(char const *data, size_t len) {
     sj_Reader r;
@@ -30,13 +30,12 @@ inline sj_Reader sj_reader(char const *data, size_t len) {
     return r;
 }
 
-
-static bool sj__is_number_cont(char c) {
+static inline bool sj__is_number_cont(char c) {
     return (c >= '0' && c <= '9') ||  c == 'e' || c == 'E' || c == '.' || c == '-' || c == '+';
 }
 
 
-static bool sj__is_string(char const *cur, char const *end, char const *expect) {
+static inline bool sj__is_string(char const *cur, char const *end, char const *expect) {
     while (*expect) {
         if (cur == end || *cur != *expect)
             return false;
@@ -48,12 +47,12 @@ static bool sj__is_string(char const *cur, char const *end, char const *expect) 
 
 inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
     sj_Value res;
-    
+
     // Process tokens in a loop to avoid goto
     while (true) {
         // Handle EOF condition
         if (r->cur == r->end) { return std::unexpected("unexpected eof"); }
-        
+
         res.start = r->cur;
 
         switch (*r->cur) {
@@ -104,7 +103,7 @@ inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
         default:
             return std::unexpected("unknown token");
         }
-        
+
         // If we reach here, it means we've processed a complete token
         res.end = r->cur;
         return res;
@@ -112,7 +111,7 @@ inline std::expected<sj_Value, std::string> sj_read(sj_Reader *r) {
 }
 
 
-static void sj__discard_until(sj_Reader *r, int depth) {
+static inline void sj__discard_until(sj_Reader *r, int depth) {
     while (r->depth != depth) {
         auto val = sj_read(r);
         if (!val.has_value()) { break; }
@@ -136,7 +135,7 @@ inline std::expected<bool, std::string> sj_iter_object(sj_Reader *r, sj_Value ob
     if (!key_result.has_value()) { return std::unexpected(key_result.error()); }
     *key = key_result.value();
     if (key->type == sj_Type::END) { return false; }
-    
+
     auto val_result = sj_read(r);
     if (!val_result.has_value()) { return std::unexpected(val_result.error()); }
     *val = val_result.value();
