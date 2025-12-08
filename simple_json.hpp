@@ -12,6 +12,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <cstdlib>
+#include <cstdint>
+#include <type_traits>
 
 /// Simple streaming JSON reader utilities.
 namespace sj {
@@ -212,10 +214,19 @@ namespace sj {
      using string_type = std::string;
      /// Type used to represent JSON booleans.
      using boolean_type = bool;
-     /// Type used to represent JSON numbers.
+     /// Type used to represent integer JSON numbers.
+     using integer_type = std::int64_t;
+     /// Type used to represent floating‑point JSON numbers.
      using number_type = double;
      /// Underlying variant storage type.
-     using value_type = std::variant<std::nullptr_t, boolean_type, number_type, string_type, array_type, object_type>;
+     using value_type = std::variant<
+         std::nullptr_t,
+         boolean_type,
+         integer_type,
+         number_type,
+         string_type,
+         array_type,
+         object_type>;
 
      /// Construct a null JSON value.
      json() : value_(nullptr) {}
@@ -223,10 +234,12 @@ namespace sj {
      json(std::nullptr_t) : value_(nullptr) {}
      /// Construct a boolean JSON value.
      json(boolean_type b) : value_(b) {}
+     /// Construct an integer JSON value.
+     json(integer_type n) : value_(n) {}
+     /// Construct an integer JSON value from a signed int.
+     json(int n) : value_(static_cast<integer_type>(n)) {}
      /// Construct a numeric JSON value from a floating‑point number.
      json(number_type n) : value_(n) {}
-     /// Construct a numeric JSON value from an integer.
-     json(int n) : value_(static_cast<number_type>(n)) {}
      /// Construct a string JSON value.
      json(string_type const& s) : value_(s) {}
      /// Construct a string JSON value.
@@ -263,8 +276,13 @@ namespace sj {
      bool is_null() const { return std::holds_alternative<std::nullptr_t>(value_); }
      /// Return true if this value is a boolean.
      bool is_boolean() const { return std::holds_alternative<boolean_type>(value_); }
-     /// Return true if this value is a number.
-     bool is_number() const { return std::holds_alternative<number_type>(value_); }
+     /// Return true if this value is an integer number.
+     bool is_integer() const { return std::holds_alternative<integer_type>(value_); }
+     /// Return true if this value is a number (integer or floating‑point).
+     bool is_number() const {
+         return std::holds_alternative<integer_type>(value_) ||
+                std::holds_alternative<number_type>(value_);
+     }
      /// Return true if this value is a string.
      bool is_string() const { return std::holds_alternative<string_type>(value_); }
      /// Return true if this value is an array.
@@ -274,8 +292,15 @@ namespace sj {
 
      /// Access the contained boolean. Precondition: `is_boolean()`.
      boolean_type as_boolean() const { return std::get<boolean_type>(value_); }
+     /// Access the contained integer. Precondition: `is_integer()`.
+     integer_type as_integer() const { return std::get<integer_type>(value_); }
      /// Access the contained number. Precondition: `is_number()`.
-     number_type as_number() const { return std::get<number_type>(value_); }
+     number_type as_number() const {
+         if (std::holds_alternative<number_type>(value_)) {
+             return std::get<number_type>(value_);
+         }
+         return static_cast<number_type>(std::get<integer_type>(value_));
+     }
      /// Access the contained string. Precondition: `is_string()`.
      string_type const& as_string() const { return std::get<string_type>(value_); }
      /// Access the contained array. Precondition: `is_array()`.
@@ -314,10 +339,198 @@ namespace sj {
          return std::get<array_type>(value_).at(idx);
      }
 
+     /// Return true if this is an object and contains the given key.
+     bool contains(std::string const& key) const {
+         if (!is_object()) {
+             return false;
+         }
+         auto const& obj = std::get<object_type>(value_);
+         return obj.find(key) != obj.end();
+     }
+
+     /// Return true if this is an object and contains the given key.
+     bool contains(char const* key) const {
+         return contains(std::string(key));
+     }
+
+     /// Return true if this is an array and `idx` is a valid index.
+     bool contains(std::size_t idx) const {
+         if (!is_array()) {
+             return false;
+         }
+         auto const& arr = std::get<array_type>(value_);
+         return idx < arr.size();
+     }
+
+     /// Return the value at `key` converted to `T`, or `default_value`
+     /// if the key is missing, the value is null, or it cannot be
+     /// converted to `T`.
+     template <typename T>
+     T value_or(std::string const& key, T default_value) const {
+         if (!is_object()) {
+             return default_value;
+         }
+         auto const& obj = std::get<object_type>(value_);
+         auto it = obj.find(key);
+         if (it == obj.end()) {
+             return default_value;
+         }
+         json const& v = it->second;
+
+         if constexpr (std::is_same_v<T, json>) {
+             return v;
+         } else if constexpr (std::is_same_v<T, boolean_type>) {
+             return v.is_boolean() ? v.as_boolean() : default_value;
+         } else if constexpr (std::is_same_v<T, integer_type>) {
+             return v.is_integer() ? v.as_integer() : default_value;
+         } else if constexpr (std::is_same_v<T, int>) {
+             if (v.is_integer()) {
+                 return static_cast<int>(v.as_integer());
+             }
+             if (v.is_number()) {
+                 return static_cast<int>(v.as_number());
+             }
+             return default_value;
+         } else if constexpr (std::is_same_v<T, number_type>) {
+             return v.is_number() ? v.as_number() : default_value;
+         } else if constexpr (std::is_same_v<T, string_type>) {
+             return v.is_string() ? v.as_string() : default_value;
+         } else if constexpr (std::is_same_v<T, array_type>) {
+             return v.is_array() ? v.as_array() : default_value;
+         } else if constexpr (std::is_same_v<T, object_type>) {
+             return v.is_object() ? v.as_object() : default_value;
+         } else {
+             static_assert(std::is_same_v<T, void>,
+                           "sj::json::value_or: unsupported type");
+         }
+     }
+
+     /// Convenience overload taking a C‑string key.
+     template <typename T>
+     T value_or(char const* key, T default_value) const {
+         return value_or(std::string(key), std::move(default_value));
+     }
+
+     /// Serialize this JSON value as a string.
+     ///
+     /// If `indent > 0`, pretty‑prints with the given indentation
+     /// width per nesting level. If `indent <= 0`, prints a compact
+     /// representation without line breaks.
+     std::string dump(int indent = 2) const {
+         std::string out;
+         dump_impl(out, indent, 0);
+         return out;
+     }
+
      /// Compare two JSON values for equality.
      friend bool operator==(json const&, json const&) = default;
 
  private:
+     static void dump_string(std::string& out, std::string const& s) {
+         out.push_back('"');
+         for (unsigned char c : s) {
+             switch (c) {
+             case '"':  out += "\\\""; break;
+             case '\\': out += "\\\\"; break;
+             case '\b': out += "\\b";  break;
+             case '\f': out += "\\f";  break;
+             case '\n': out += "\\n";  break;
+             case '\r': out += "\\r";  break;
+             case '\t': out += "\\t";  break;
+             default:
+                 if (c < 0x20) {
+                     static char const* hex = "0123456789ABCDEF";
+                     out += "\\u00";
+                     out.push_back(hex[(c >> 4) & 0xF]);
+                     out.push_back(hex[c & 0xF]);
+                 } else {
+                     out.push_back(static_cast<char>(c));
+                 }
+                 break;
+             }
+         }
+         out.push_back('"');
+     }
+
+     void dump_impl(std::string& out, int indent, int depth) const {
+         auto write_indent = [&](int d) {
+             if (indent > 0) {
+                 out.append(static_cast<std::size_t>(d * indent), ' ');
+             }
+         };
+
+         if (is_null()) {
+             out += "null";
+         } else if (is_boolean()) {
+             out += as_boolean() ? "true" : "false";
+         } else if (is_number()) {
+             if (is_integer()) {
+                 out += std::to_string(as_integer());
+             } else {
+                 std::ostringstream oss;
+                 oss << as_number();
+                 out += oss.str();
+             }
+         } else if (is_string()) {
+             dump_string(out, as_string());
+         } else if (is_array()) {
+             auto const& arr = std::get<array_type>(value_);
+             out.push_back('[');
+             if (!arr.empty()) {
+                 bool first = true;
+                 for (auto const& el : arr) {
+                     if (first) {
+                         first = false;
+                     } else {
+                         out.push_back(',');
+                     }
+                     if (indent > 0) {
+                         out.push_back('\n');
+                         write_indent(depth + 1);
+                     } else {
+                         out.push_back(' ');
+                     }
+                     el.dump_impl(out, indent, depth + 1);
+                 }
+                 if (indent > 0) {
+                     out.push_back('\n');
+                     write_indent(depth);
+                 }
+             }
+             out.push_back(']');
+         } else if (is_object()) {
+             auto const& obj = std::get<object_type>(value_);
+             out.push_back('{');
+             if (!obj.empty()) {
+                 bool first = true;
+                 for (auto const& kv : obj) {
+                     if (first) {
+                         first = false;
+                     } else {
+                         out.push_back(',');
+                     }
+                     if (indent > 0) {
+                         out.push_back('\n');
+                         write_indent(depth + 1);
+                     } else {
+                         out.push_back(' ');
+                     }
+                     dump_string(out, kv.first);
+                     out.push_back(':');
+                     if (indent > 0) {
+                         out.push_back(' ');
+                     }
+                     kv.second.dump_impl(out, indent, depth + 1);
+                 }
+                 if (indent > 0) {
+                     out.push_back('\n');
+                     write_indent(depth);
+                 }
+             }
+             out.push_back('}');
+         }
+     }
+
      value_type value_;
  };
 
@@ -371,15 +584,31 @@ namespace sj {
          return json(nullptr);
      case Type::BOOL:
          return json(v.start[0] == 't');
-     case Type::NUMBER: {
+    case Type::NUMBER: {
          std::string num_str{v.start, v.end};
+         bool is_integer_literal = true;
+         for (char c : num_str) {
+             if (c == '.' || c == 'e' || c == 'E') {
+                 is_integer_literal = false;
+                 break;
+             }
+         }
+
          char* end_ptr = nullptr;
          char const* c_str = num_str.c_str();
-         double value = std::strtod(c_str, &end_ptr);
-         if (end_ptr != c_str + num_str.size()) {
-             throw std::runtime_error("invalid number literal");
+         if (is_integer_literal) {
+             long long iv = std::strtoll(c_str, &end_ptr, 10);
+             if (end_ptr != c_str + num_str.size()) {
+                 throw std::runtime_error("invalid integer literal");
+             }
+             return json(static_cast<json::integer_type>(iv));
+         } else {
+             double dv = std::strtod(c_str, &end_ptr);
+             if (end_ptr != c_str + num_str.size()) {
+                 throw std::runtime_error("invalid number literal");
+             }
+             return json(dv);
          }
-         return json(value);
      }
      case Type::STRING:
          return json(std::string{v.start, v.end});
