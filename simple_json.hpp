@@ -694,12 +694,6 @@ namespace sj {
          }
      }
 
-     /// Implicit conversion convenience wrapper, equivalent to `get<T>()`.
-     template <typename T>
-     operator T() const {
-         return get<T>();
-     }
-
      /// Convert this value to a double, or return `default_value` if it is
      /// not a number.
      number_type to_double(number_type default_value = 0.0) const {

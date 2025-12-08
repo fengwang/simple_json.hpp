@@ -41,7 +41,7 @@ int main() {
     // getter / setter
     const auto tmp = j[std::size_t{0}].get<json::string_type>();
     j[1] = 42;
-    bool flag = j.at(2); // implicit get<bool>()
+    bool flag = j.at(2).get<bool>();
     std::cout << "tmp = " << tmp << ", j[1] = " << j[1]
               << ", flag = " << flag << "\n";
 

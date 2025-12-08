@@ -153,9 +153,9 @@ for (auto& element : j) {
     std::cout << element << '\n';
 }
 
-auto s = j[0].get<sj::json::string_type>(); // "foo"
+auto s = j[0].get<sj::json::string_type>();    // "foo"
 j[1] = 42;
-bool flag = j.at(2);                        // implicit get<bool>()
+bool flag = j.at(2).get<bool>();               // explicit get<bool>()
 
 std::size_t n = j.size();   // 4
 bool e = j.empty();         // false
@@ -192,6 +192,34 @@ if (o.find("foo") != o.end()) { /* found via iterator */ }
 
 auto count_foo = o.count("foo"); // 1
 o.erase("foo");                  // remove entry if present
+```
+
+### Implicit conversions into `sj::json`
+
+Fundamental types can be implicitly converted *to* `sj::json`, but not the other way around (use `get<T>()` to extract values).
+
+```cpp
+// strings
+std::string s1 = "Hello, world!";
+sj::json js = s1;                          // OK
+auto s2 = js.get<std::string>();           // extract as string
+// std::string s3 = js;                    // not allowed
+
+// booleans
+bool b1 = true;
+sj::json jb = b1;                          // OK
+auto b2 = jb.get<bool>();                  // extract as bool
+// bool b3 = jb;                           // not allowed
+
+// integers and floating-point numbers
+int i = 42;
+sj::json jn = i;                           // OK
+auto f = jn.get<double>();                 // extract as double
+// double f2 = jn;                         // not allowed
+
+// chars become integer numbers, not strings
+char ch = 'A';                             // ASCII 65
+sj::json j_default = ch;                   // stores integer 65
 ```
 
 ### STL container conversions
