@@ -5,24 +5,37 @@
  #include <string>
  #include <expected>
 
+ /// Simple streaming JSON reader utilities.
  namespace sj {
 
+ /// JSON token type produced by the reader.
  enum class Type { END, ARRAY, OBJECT, NUMBER, STRING, BOOL, NULL_ };
 
+ /// Streaming JSON reader state.
  struct Reader {
+     /// Pointer to the beginning of the JSON buffer.
      char const* data;
+     /// Current cursor position within the buffer.
      char const* cur;
+     /// One‑past‑the‑end pointer of the buffer.
      char const* end;
+     /// Current nesting depth (arrays / objects).
      int depth;
  };
 
+ /// View of a single JSON value within the original buffer.
  struct Value {
+     /// Type of this JSON value.
      Type type;
+     /// Pointer to the first character of the value’s textual representation.
      char const* start;
+     /// One‑past‑the‑end pointer of the value’s textual representation.
      char const* end;
+     /// Nesting depth at which this value resides.
      int depth;
  };
 
+ /// Create a reader over a JSON buffer `[data, data + len)`.
  inline Reader reader(char const* data, std::size_t len) {
      Reader r;
      r.data = data;
@@ -32,10 +45,13 @@
      return r;
  }
 
+ /// Return true if the character can appear after the first character
+ /// in a JSON number literal.
  inline bool is_number_cont(char c) {
      return (c >= '0' && c <= '9') ||  c == 'e' || c == 'E' || c == '.' || c == '-' || c == '+';
  }
 
+ /// Helper that checks whether the sequence `[cur, end)` starts with `expect`.
  inline bool is_string(char const* cur, char const* end, char const* expect) {
      while (*expect) {
          if (cur == end || *cur != *expect)
@@ -45,6 +61,11 @@
      return true;
  }
 
+ /// Read the next JSON token from the stream.
+ ///
+ /// On success, returns a `Value` whose `start`/`end` point into
+ /// the original buffer managed by `Reader`. On failure, returns
+ /// an error message describing the problem.
  inline std::expected<Value, std::string> read(Reader* r) {
      Value res{};
 
@@ -110,6 +131,9 @@
      }
  }
 
+ /// Consume values until the reader’s depth returns to the given `depth`.
+ ///
+ /// This is mainly useful for skipping over unneeded subtrees.
  inline void discard_until(Reader* r, int depth) {
      while (r->depth != depth) {
          auto val = read(r);
@@ -117,6 +141,14 @@
      }
  }
 
+ /// Iterate over the elements of a JSON array.
+ ///
+ /// `arr` must be a `Value` whose `type` is `Type::ARRAY` and whose
+ /// `depth` matches the reader state. On success, stores the next
+ /// element into `*val` and returns:
+ ///  - `true`  while there are more elements,
+ ///  - `false` when the end of the array is reached.
+ /// On error, returns an error message.
  inline std::expected<bool, std::string> iter_array(Reader* r, Value arr, Value* val) {
      discard_until(r, arr.depth);
      auto result = read(r);
@@ -126,6 +158,14 @@
      return true;
  }
 
+ /// Iterate over the key/value pairs of a JSON object.
+ ///
+ /// `obj` must be a `Value` whose `type` is `Type::OBJECT` and whose
+ /// `depth` matches the reader state. On success, stores the next
+ /// key into `*key` and its value into `*val`, and returns:
+ ///  - `true`  while there are more pairs,
+ ///  - `false` when the end of the object is reached.
+ /// On error, returns an error message.
  inline std::expected<bool, std::string> iter_object(Reader* r, Value obj, Value* key, Value* val) {
      discard_until(r, obj.depth);
      auto key_result = read(r);
@@ -140,6 +180,10 @@
      return true;
  }
 
+ /// Compute the current line and column of the reader cursor.
+ ///
+ /// Lines and columns are 1‑based and are counted from `Reader::data`
+ /// up to, but not including, the current cursor position.
  inline void location(Reader* r, int* line, int* col) {
      int ln = 1, cl = 1;
      for (char const *p = r->data; p != r->cur; p++) {
