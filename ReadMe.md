@@ -14,11 +14,12 @@ make
 ```
 
 This produces:
-- `array`   – simple array iteration demo  
-- `object`  – object iteration and skipping fields  
-- `printer` – pretty-print / minify a JSON file  
-- `rect`    – load a small struct from JSON  
-- `json_test` – exercises the `sj::json` API
+- `array`        – simple array iteration demo  
+- `object`       – object iteration and skipping fields  
+- `printer`      – pretty-print / minify a JSON file  
+- `rect`         – load a small struct from JSON  
+- `json_test`    – exercises the `sj::json` API  
+- `json_container` – demonstrates `sj::json`’s container-like operations
 
 ## The `sj::json` data type
 
@@ -131,6 +132,68 @@ if (j["list"].contains(0)) {
 }
 ```
 
+### Container-like operations
+
+`sj::json` behaves similarly to a standard container for arrays and objects.
+
+Array operations:
+
+```cpp
+sj::json j;              // null
+j.push_back("foo");      // j becomes an array
+j.push_back(1);
+j.push_back(true);
+j.emplace_back(1.78);
+
+for (auto it = j.begin(); it != j.end(); ++it) {
+    std::cout << *it << '\n';
+}
+
+for (auto& element : j) {
+    std::cout << element << '\n';
+}
+
+auto s = j[0].get<sj::json::string_type>(); // "foo"
+j[1] = 42;
+bool flag = j.at(2);                        // implicit get<bool>()
+
+std::size_t n = j.size();   // 4
+bool e = j.empty();         // false
+sj::value_t t = j.type();   // sj::value_t::array
+j.clear();                  // becomes empty array (or null for scalars)
+```
+
+Object operations:
+
+```cpp
+sj::json o;
+o["foo"] = 23;
+o["bar"] = false;
+o["baz"] = 3.141;
+o.emplace("weather", "sunny");
+
+// iterate with key() / value()
+for (auto it = o.begin(); it != o.end(); ++it) {
+    std::cout << it.key() << " : " << it.value() << "\n";
+}
+
+// items() view
+for (auto item : o.items()) {
+    std::cout << item.key() << " : " << item.value() << "\n";
+}
+
+// structured bindings
+for (auto [key, value] : o.items()) {
+    std::cout << key << " : " << value << "\n";
+}
+
+if (o.contains("foo")) { /* key exists */ }
+if (o.find("foo") != o.end()) { /* found via iterator */ }
+
+auto count_foo = o.count("foo"); // 1
+o.erase("foo");                  // remove entry if present
+```
+
 ### Pretty-printing and streaming
 
 To get a JSON string:
@@ -149,4 +212,3 @@ std::cout << j << "\n"; // compact JSON
 ```
 
 Both `dump()` and `operator<<` produce valid JSON that can be parsed again with `sj::parse`.
-

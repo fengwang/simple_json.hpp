@@ -15,6 +15,9 @@
 #include <cstdlib>
 #include <cstdint>
 #include <type_traits>
+#include <iterator>
+#include <tuple>
+#include <utility>
 
 /// Simple streaming JSON reader utilities.
 namespace sj {
@@ -204,6 +207,17 @@ namespace sj {
      *col = cl;
  }
 
+ /// High‑level JSON value category used by sj::json::type().
+ enum class value_t {
+     null,
+     boolean,
+     integer,
+     number,
+     string,
+     array,
+     object
+ };
+
  /// First‑class JSON value type built on top of the streaming reader.
  class json {
  public:
@@ -228,6 +242,221 @@ namespace sj {
          string_type,
          array_type,
          object_type>;
+
+     /// Iterator for arrays and objects.
+     class iterator {
+     public:
+         using difference_type   = std::ptrdiff_t;
+         using value_type        = json;
+         using pointer           = json*;
+         using reference         = json&;
+         using iterator_category = std::bidirectional_iterator_tag;
+
+         iterator() = default;
+
+         reference operator*() const {
+             if (std::holds_alternative<array_iter>(it_)) {
+                 return *std::get<array_iter>(it_);
+             }
+             return std::get<object_iter>(it_)->second;
+         }
+
+         pointer operator->() const { return &**this; }
+
+         iterator& operator++() {
+             if (std::holds_alternative<array_iter>(it_)) {
+                 ++std::get<array_iter>(it_);
+             } else if (std::holds_alternative<object_iter>(it_)) {
+                 ++std::get<object_iter>(it_);
+             }
+             return *this;
+         }
+
+         iterator operator++(int) {
+             iterator tmp = *this;
+             ++(*this);
+             return tmp;
+         }
+
+         iterator& operator--() {
+             if (std::holds_alternative<array_iter>(it_)) {
+                 --std::get<array_iter>(it_);
+             } else if (std::holds_alternative<object_iter>(it_)) {
+                 --std::get<object_iter>(it_);
+             }
+             return *this;
+         }
+
+         iterator operator--(int) {
+             iterator tmp = *this;
+             --(*this);
+             return tmp;
+         }
+
+         friend bool operator==(iterator const& a, iterator const& b) {
+             return a.it_ == b.it_;
+         }
+
+         friend bool operator!=(iterator const& a, iterator const& b) {
+             return !(a == b);
+         }
+
+         /// Access the key when iterating objects.
+         std::string const& key() const {
+             return std::get<object_iter>(it_)->first;
+         }
+
+         /// Access the value when iterating objects.
+         reference value() const {
+             return std::get<object_iter>(it_)->second;
+         }
+
+     private:
+         friend class json;
+         using array_iter  = array_type::iterator;
+         using object_iter = object_type::iterator;
+         std::variant<std::monostate, array_iter, object_iter> it_;
+
+         explicit iterator(array_iter it)  : it_(it) {}
+         explicit iterator(object_iter it) : it_(it) {}
+     };
+
+     /// Const iterator for arrays and objects.
+     class const_iterator {
+     public:
+         using difference_type   = std::ptrdiff_t;
+         using value_type        = json;
+         using pointer           = json const*;
+         using reference         = json const&;
+         using iterator_category = std::bidirectional_iterator_tag;
+
+         const_iterator() = default;
+
+         reference operator*() const {
+             if (std::holds_alternative<array_iter>(it_)) {
+                 return *std::get<array_iter>(it_);
+             }
+             return std::get<object_iter>(it_)->second;
+         }
+
+         pointer operator->() const { return &**this; }
+
+         const_iterator& operator++() {
+             if (std::holds_alternative<array_iter>(it_)) {
+                 ++std::get<array_iter>(it_);
+             } else if (std::holds_alternative<object_iter>(it_)) {
+                 ++std::get<object_iter>(it_);
+             }
+             return *this;
+         }
+
+         const_iterator operator++(int) {
+             const_iterator tmp = *this;
+             ++(*this);
+             return tmp;
+         }
+
+         const_iterator& operator--() {
+             if (std::holds_alternative<array_iter>(it_)) {
+                 --std::get<array_iter>(it_);
+             } else if (std::holds_alternative<object_iter>(it_)) {
+                 --std::get<object_iter>(it_);
+             }
+             return *this;
+         }
+
+         const_iterator operator--(int) {
+             const_iterator tmp = *this;
+             --(*this);
+             return tmp;
+         }
+
+         friend bool operator==(const_iterator const& a, const_iterator const& b) {
+             return a.it_ == b.it_;
+         }
+
+         friend bool operator!=(const_iterator const& a, const_iterator const& b) {
+             return !(a == b);
+         }
+
+         /// Access the key when iterating objects.
+         std::string const& key() const {
+             return std::get<object_iter>(it_)->first;
+         }
+
+         /// Access the value when iterating objects.
+         reference value() const {
+             return std::get<object_iter>(it_)->second;
+         }
+
+     private:
+         friend class json;
+         using array_iter  = array_type::const_iterator;
+         using object_iter = object_type::const_iterator;
+         std::variant<std::monostate, array_iter, object_iter> it_;
+
+         explicit const_iterator(array_iter it)  : it_(it) {}
+         explicit const_iterator(object_iter it) : it_(it) {}
+     };
+
+     /// Proxy type used when iterating key/value pairs of an object.
+     struct item_type {
+         std::string const* key_ptr;
+         json* value_ptr;
+
+         std::string const& key() const { return *key_ptr; }
+         json& value() const { return *value_ptr; }
+     };
+
+     /// View over the key/value pairs of an object.
+     class items_view {
+     public:
+         struct iterator {
+             using difference_type   = std::ptrdiff_t;
+             using value_type        = item_type;
+             using pointer           = void;
+             using reference         = item_type;
+             using iterator_category = std::forward_iterator_tag;
+
+             iterator() = default;
+             explicit iterator(object_type::iterator it) : it_(it) {}
+
+             item_type operator*() const {
+                 return item_type{&it_->first, &it_->second};
+             }
+
+             iterator& operator++() {
+                 ++it_;
+                 return *this;
+             }
+
+             iterator operator++(int) {
+                 iterator tmp = *this;
+                 ++(*this);
+                 return tmp;
+             }
+
+             friend bool operator==(iterator const& a, iterator const& b) {
+                 return a.it_ == b.it_;
+             }
+
+             friend bool operator!=(iterator const& a, iterator const& b) {
+                 return !(a == b);
+             }
+
+         private:
+             friend class items_view;
+             object_type::iterator it_{};
+         };
+
+         explicit items_view(object_type& obj) : obj_(&obj) {}
+
+         iterator begin() { return iterator(obj_->begin()); }
+         iterator end()   { return iterator(obj_->end()); }
+
+     private:
+         object_type* obj_;
+     };
 
      /// Construct a null JSON value.
      json() : value_(nullptr) {}
@@ -291,6 +520,18 @@ namespace sj {
      /// Return true if this value is an object.
      bool is_object() const { return std::holds_alternative<object_type>(value_); }
 
+     /// Return the high‑level type of this value.
+     value_t type() const {
+         if (is_null())    { return value_t::null; }
+         if (is_boolean()) { return value_t::boolean; }
+         if (is_integer()) { return value_t::integer; }
+         if (std::holds_alternative<number_type>(value_)) { return value_t::number; }
+         if (is_string())  { return value_t::string; }
+         if (is_array())   { return value_t::array; }
+         if (is_object())  { return value_t::object; }
+         return value_t::null;
+     }
+
      /// Access the contained boolean. Precondition: `is_boolean()`.
      boolean_type as_boolean() const { return std::get<boolean_type>(value_); }
      /// Access the contained integer. Precondition: `is_integer()`.
@@ -308,6 +549,74 @@ namespace sj {
      array_type const& as_array() const { return std::get<array_type>(value_); }
      /// Access the contained object. Precondition: `is_object()`.
      object_type const& as_object() const { return std::get<object_type>(value_); }
+
+     /// Extract the value as type `T`.
+     ///
+     /// Supported `T` are:
+     ///  - `sj::json`
+     ///  - `bool`
+     ///  - `integer_type` / `int`
+     ///  - `number_type`
+     ///  - `string_type`
+     ///  - `array_type`
+     ///  - `object_type`
+     /// Throws `std::runtime_error` if the value cannot be converted.
+     template <typename T>
+     T get() const {
+         if constexpr (std::is_same_v<T, json>) {
+             return *this;
+         } else if constexpr (std::is_same_v<T, boolean_type>) {
+             if (!is_boolean()) {
+                 throw std::runtime_error("sj::json::get<bool>: not a boolean");
+             }
+             return as_boolean();
+         } else if constexpr (std::is_same_v<T, integer_type>) {
+             if (is_integer()) {
+                 return as_integer();
+             }
+             if (std::holds_alternative<number_type>(value_)) {
+                 return static_cast<integer_type>(std::get<number_type>(value_));
+             }
+             throw std::runtime_error("sj::json::get<integer_type>: not a number");
+         } else if constexpr (std::is_same_v<T, int>) {
+             if (is_integer()) {
+                 return static_cast<int>(as_integer());
+             }
+             if (std::holds_alternative<number_type>(value_)) {
+                 return static_cast<int>(std::get<number_type>(value_));
+             }
+             throw std::runtime_error("sj::json::get<int>: not a number");
+         } else if constexpr (std::is_same_v<T, number_type>) {
+             if (!is_number()) {
+                 throw std::runtime_error("sj::json::get<number_type>: not a number");
+             }
+             return as_number();
+         } else if constexpr (std::is_same_v<T, string_type>) {
+             if (!is_string()) {
+                 throw std::runtime_error("sj::json::get<string>: not a string");
+             }
+             return as_string();
+         } else if constexpr (std::is_same_v<T, array_type>) {
+             if (!is_array()) {
+                 throw std::runtime_error("sj::json::get<array_type>: not an array");
+             }
+             return as_array();
+         } else if constexpr (std::is_same_v<T, object_type>) {
+             if (!is_object()) {
+                 throw std::runtime_error("sj::json::get<object_type>: not an object");
+             }
+             return as_object();
+         } else {
+             static_assert(std::is_same_v<T, void>,
+                           "sj::json::get: unsupported type");
+         }
+     }
+
+     /// Implicit conversion convenience wrapper, equivalent to `get<T>()`.
+     template <typename T>
+     operator T() const {
+         return get<T>();
+     }
 
      /// Convert this value to a double, or return `default_value` if it is
      /// not a number.
@@ -348,6 +657,11 @@ namespace sj {
          return std::get<object_type>(value_).at(key);
      }
 
+     /// Access an object member by key. Precondition: `is_object()`.
+     json& at(std::string const& key) {
+         return std::get<object_type>(value_).at(key);
+     }
+
      /// Access an array element by index. Precondition: `is_array()`.
      json& operator[](std::size_t idx) {
          return std::get<array_type>(value_)[idx];
@@ -356,6 +670,54 @@ namespace sj {
      /// Access an array element by index (const). Precondition: `is_array()`.
      json const& at(std::size_t idx) const {
          return std::get<array_type>(value_).at(idx);
+     }
+
+     /// Access an array element by index. Precondition: `is_array()`.
+     json& at(std::size_t idx) {
+         return std::get<array_type>(value_).at(idx);
+     }
+
+     /// Append an element to an array, converting null to an empty array.
+     void push_back(json const& v) {
+         ensure_array();
+         std::get<array_type>(value_).push_back(v);
+     }
+
+     /// Append an element to an array, converting null to an empty array.
+     void push_back(json&& v) {
+         ensure_array();
+         std::get<array_type>(value_).push_back(std::move(v));
+     }
+
+     /// Append an element constructed from `value` to an array.
+     template <typename T>
+     void push_back(T&& value) {
+         emplace_back(std::forward<T>(value));
+     }
+
+     /// Emplace an element at the end of an array and return a reference to it.
+     template <typename... Args>
+     json& emplace_back(Args&&... args) {
+         ensure_array();
+         auto& arr = std::get<array_type>(value_);
+         arr.emplace_back(std::forward<Args>(args)...);
+         return arr.back();
+     }
+
+     /// Emplace a key/value pair into an object and return a reference to the value.
+     template <typename T>
+     json& emplace(std::string key, T&& value) {
+         ensure_object();
+         auto& obj = std::get<object_type>(value_);
+         auto [it, inserted] = obj.emplace(std::move(key), json(std::forward<T>(value)));
+         (void)inserted;
+         return it->second;
+     }
+
+     /// Emplace a key/value pair into an object and return a reference to the value.
+     template <typename T>
+     json& emplace(char const* key, T&& value) {
+         return emplace(std::string(key), std::forward<T>(value));
      }
 
      /// Return true if this is an object and contains the given key.
@@ -379,6 +741,174 @@ namespace sj {
          }
          auto const& arr = std::get<array_type>(value_);
          return idx < arr.size();
+     }
+
+     /// Return the number of elements.
+     ///
+     /// For arrays and objects, this is the element count.
+     /// For null, returns 0. For scalar values, returns 1.
+     std::size_t size() const {
+         if (is_null()) {
+             return 0;
+         }
+         if (is_array()) {
+             return std::get<array_type>(value_).size();
+         }
+         if (is_object()) {
+             return std::get<object_type>(value_).size();
+         }
+         return 1;
+     }
+
+     /// Return true if the value is empty.
+     ///
+     /// Null is empty; arrays and objects are empty if they contain
+     /// no elements; scalar values are never empty.
+     bool empty() const {
+         if (is_null()) {
+             return true;
+         }
+         if (is_array()) {
+             return std::get<array_type>(value_).empty();
+         }
+         if (is_object()) {
+             return std::get<object_type>(value_).empty();
+         }
+         return false;
+     }
+
+     /// Remove all elements from the value.
+     ///
+     /// For arrays and objects, clears their contents. For scalar
+     /// values, resets the value to null.
+     void clear() {
+         if (is_array()) {
+             std::get<array_type>(value_).clear();
+         } else if (is_object()) {
+             std::get<object_type>(value_).clear();
+         } else {
+             value_ = nullptr;
+         }
+     }
+
+     /// Iterator to the first element (array element or object value).
+     iterator begin() {
+         if (is_array()) {
+             auto& arr = std::get<array_type>(value_);
+             return iterator(arr.begin());
+         }
+         if (is_object()) {
+             auto& obj = std::get<object_type>(value_);
+             return iterator(obj.begin());
+         }
+         return iterator{};
+     }
+
+     /// Iterator past the last element (array element or object value).
+     iterator end() {
+         if (is_array()) {
+             auto& arr = std::get<array_type>(value_);
+             return iterator(arr.end());
+         }
+         if (is_object()) {
+             auto& obj = std::get<object_type>(value_);
+             return iterator(obj.end());
+         }
+         return iterator{};
+     }
+
+     /// Const iterator to the first element.
+     const_iterator begin() const {
+         if (is_array()) {
+             auto const& arr = std::get<array_type>(value_);
+             return const_iterator(arr.begin());
+         }
+         if (is_object()) {
+             auto const& obj = std::get<object_type>(value_);
+             return const_iterator(obj.begin());
+         }
+         return const_iterator{};
+     }
+
+     /// Const iterator past the last element.
+     const_iterator end() const {
+         if (is_array()) {
+             auto const& arr = std::get<array_type>(value_);
+             return const_iterator(arr.end());
+         }
+         if (is_object()) {
+             auto const& obj = std::get<object_type>(value_);
+             return const_iterator(obj.end());
+         }
+         return const_iterator{};
+     }
+
+     /// Const iterator to the first element.
+     const_iterator cbegin() const { return begin(); }
+     /// Const iterator past the last element.
+     const_iterator cend() const { return end(); }
+
+     /// Return a view over an object's items (key/value pairs).
+     ///
+     /// Precondition: `is_object()`.
+     items_view items() {
+         if (!is_object()) {
+             throw std::runtime_error("sj::json::items: not an object");
+         }
+         auto& obj = std::get<object_type>(value_);
+         return items_view(obj);
+     }
+
+     /// Find an element in an object by key.
+     iterator find(std::string const& key) {
+         if (!is_object()) {
+             return end();
+         }
+         auto& obj = std::get<object_type>(value_);
+         return iterator(obj.find(key));
+     }
+
+     /// Find an element in an object by key.
+     iterator find(char const* key) {
+         return find(std::string(key));
+     }
+
+     /// Find an element in an object by key (const).
+     const_iterator find(std::string const& key) const {
+         if (!is_object()) {
+             return end();
+         }
+         auto const& obj = std::get<object_type>(value_);
+         return const_iterator(obj.find(key));
+     }
+
+     /// Find an element in an object by key (const).
+     const_iterator find(char const* key) const {
+         return find(std::string(key));
+     }
+
+     /// Count the number of elements with the given key (0 or 1).
+     std::size_t count(std::string const& key) const {
+         return contains(key) ? 1u : 0u;
+     }
+
+     /// Count the number of elements with the given key (0 or 1).
+     std::size_t count(char const* key) const {
+         return count(std::string(key));
+     }
+
+     /// Erase an element from an object by key. No‑op if not an object.
+     void erase(std::string const& key) {
+         if (!is_object()) {
+             return;
+         }
+         auto& obj = std::get<object_type>(value_);
+         obj.erase(key);
+     }
+
+     /// Erase an element from an object by key. No‑op if not an object.
+     void erase(char const* key) {
+         erase(std::string(key));
      }
 
      /// Return the value at `key` converted to `T`, or `default_value`
@@ -445,6 +975,22 @@ namespace sj {
      friend bool operator==(json const&, json const&) = default;
 
  private:
+     void ensure_array() {
+         if (is_null()) {
+             value_ = array_type{};
+         } else if (!is_array()) {
+             throw std::runtime_error("sj::json: value is not an array");
+         }
+     }
+
+     void ensure_object() {
+         if (is_null()) {
+             value_ = object_type{};
+         } else if (!is_object()) {
+             throw std::runtime_error("sj::json: value is not an object");
+         }
+     }
+
      static void dump_string(std::string& out, std::string const& s) {
          out.push_back('"');
          for (unsigned char c : s) {
@@ -677,5 +1223,35 @@ namespace sj {
  }
 
  } // namespace sj
+
+namespace std {
+
+template<>
+struct tuple_size<sj::json::item_type> : std::integral_constant<std::size_t, 2> {};
+
+template<>
+struct tuple_element<0, sj::json::item_type> {
+    using type = std::string const;
+};
+
+template<>
+struct tuple_element<1, sj::json::item_type> {
+    using type = sj::json;
+};
+
+} // namespace std
+
+namespace sj {
+
+template <std::size_t I>
+auto get(json::item_type item) {
+    if constexpr (I == 0) {
+        return item.key();
+    } else if constexpr (I == 1) {
+        return item.value();
+    }
+}
+
+} // namespace sj
 
 #endif // #ifndef SIMPLE_JSON_HPP

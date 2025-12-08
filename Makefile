@@ -1,7 +1,7 @@
 CC := g++
 CFLAGS := -std=c++23 -O2 -Wall -Wextra
 
-DEMOS := array object printer rect json_test
+DEMOS := array object printer rect json_test json_container
 TARGETS := $(DEMOS)
 
 all: $(TARGETS)
@@ -19,6 +19,9 @@ rect: demo/rect.cc
 	$(CC) $(CFLAGS) -o $@ $<
 
 json_test: demo/json_test.cc
+	$(CC) $(CFLAGS) -o $@ $<
+
+json_container: demo/json_container.cc
 	$(CC) $(CFLAGS) -o $@ $<
 
 clean:
