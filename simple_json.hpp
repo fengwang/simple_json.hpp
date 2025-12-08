@@ -9,6 +9,7 @@
 #include <vector>
 #include <map>
 #include <istream>
+#include <ostream>
 #include <sstream>
 #include <stdexcept>
 #include <cstdlib>
@@ -307,6 +308,24 @@ namespace sj {
      array_type const& as_array() const { return std::get<array_type>(value_); }
      /// Access the contained object. Precondition: `is_object()`.
      object_type const& as_object() const { return std::get<object_type>(value_); }
+
+     /// Convert this value to a double, or return `default_value` if it is
+     /// not a number.
+     number_type to_double(number_type default_value = 0.0) const {
+         return is_number() ? as_number() : default_value;
+     }
+
+     /// Convert this value to an int, or return `default_value` if it is
+     /// not numeric.
+     int to_int(int default_value = 0) const {
+         if (is_integer()) {
+             return static_cast<int>(as_integer());
+         }
+         if (is_number()) {
+             return static_cast<int>(as_number());
+         }
+         return default_value;
+     }
 
      /// Access or create an object member by key.
      ///
@@ -650,6 +669,12 @@ namespace sj {
  }
 
  } // namespace literals
+
+ /// Stream a JSON value to an output stream using its compact representation.
+ inline std::ostream& operator<<(std::ostream& os, json const& j) {
+     os << j.dump(0);
+     return os;
+ }
 
  } // namespace sj
 

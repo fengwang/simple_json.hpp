@@ -98,10 +98,22 @@ int main() {
     bool missing_flag = from_stream.value_or("missing_flag", false);
     assert(missing_flag == false);
 
+    // to_double / to_int convenience wrappers.
+    assert(from_stream["pi"].to_double() == 3.141);
+    assert(from_stream["answer"]["everything"].to_int() == 42);
+    assert(from_stream["missing"].to_double(1.5) == 1.5);
+    assert(from_stream["missing"].to_int(-7) == -7);
+
     // pretty-printing round trip.
     std::string pretty = expected.dump(2);
     json round_trip = sj::parse(pretty);
     assert(round_trip == expected);
+
+    // operator<< should produce a parseable representation.
+    std::ostringstream out;
+    out << expected;
+    json streamed_back = sj::parse(out.str());
+    assert(streamed_back == expected);
 
     std::cout << "json_test: all checks passed\n";
     return 0;
