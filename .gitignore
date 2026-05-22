@@ -1,0 +1,4 @@
+references_code/*
+run_tests
+test/*.o
+demo_*
