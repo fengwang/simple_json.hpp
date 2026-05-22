@@ -1,67 +1,53 @@
 # simple_json.hpp
 
-A tiny, header-only JSON helper library with a streaming tokenizer and a modern C++23 value type `sj::json`. It started as a C project and now provides a small, easy-to-embed interface suitable for demos, tools, and tests.
+A tiny, header-only JSON library for modern C++26. It combines a runtime JSON value type (`sj::json`) with compile-time reflection to provide automatic struct↔JSON conversion, enum serialization, and consteval JSON parsing — all in a single header with zero dependencies beyond the standard library.
 
-## Building the demos
+## Building
 
 Requirements:
-- C++23-compatible compiler (e.g. `g++` 13+)
+- GCC 16+ with `-std=c++26 -freflection`
 
-Build all demos from the project root:
+Build tests and demos from the project root:
 
 ```bash
-make
+make          # builds tests + demos, runs tests
+make test     # tests only
+make demos    # demos only
 ```
 
 This produces:
-- `array`        – simple array iteration demo
-- `object`       – object iteration and skipping fields
-- `printer`      – pretty-print / minify a JSON file
-- `rect`         – load a small struct from JSON
-- `json_test`    – exercises the `sj::json` API
-- `json_container` – demonstrates `sj::json`’s container-like operations
+- `run_tests`         – the full test suite (149 tests)
+- `demo_basic`        – parsing, access, serialization
+- `demo_reflection`   – automatic struct↔JSON via reflection
+- `demo_compile_time` – consteval JSON parsing with `static_assert`
+- `demo_containers`   – STL container round-trips
 
-## The `sj::json` data type
+## Features & Examples
 
-The core high-level API is the `sj::json` value type defined in `simple_json.hpp`. It represents any JSON value:
+### The `sj::json` data type
 
-- `null`
-- boolean (`true` / `false`)
-- number (stored as 64-bit integer or double)
-- string
-- array of `sj::json`
-- object mapping `std::string` keys to `sj::json`
+`sj::json` represents any JSON value: null, boolean, integer (64-bit), floating-point (double), string, array, or object.
 
 ### Parsing JSON
 
-From an input stream:
-
-```cpp
-#include <fstream>
-#include "simple_json.hpp"
-
-std::ifstream f("example.json");
-sj::json data = sj::parse(f);
-```
+All parsing returns `std::expected<json, error>` — no exceptions.
 
 From a string:
 
 ```cpp
-std::string text = R"({ "pi": 3.141, "happy": true })";
-sj::json data = sj::parse(text);
+auto result = sj::parse(R"({ "pi": 3.141, "happy": true })");
+if (!result) {
+    std::cerr << result.error().message << "\n";
+    return;
+}
+sj::json data = *result;
 ```
 
-Using the user-defined literal:
+From an input stream:
 
 ```cpp
-using namespace sj::literals;
-
-sj::json data = R"(
-{
-  "pi": 3.141,
-  "happy": true
-}
-)"_json;
+std::ifstream f("example.json");
+auto data = sj::parse(f);
 ```
 
 ### Constructing JSON in C++
@@ -70,8 +56,9 @@ Using initializer lists:
 
 ```cpp
 sj::json j = {
-  {"pi", 3.141},
-  {"happy", true},
+    {"pi", 3.141},
+    {"happy", true},
+    {"list", sj::json::array_type{1, 0, 2}},
 };
 ```
 
@@ -83,84 +70,71 @@ j["pi"] = 3.141;     // j becomes an object
 j["happy"] = true;
 ```
 
-Arrays use `sj::json::array_type`:
+From STL containers (concept-detected — any iterable container works):
 
 ```cpp
-sj::json::array_type arr = {1, 0, 2};
-sj::json j = {
-  {"list", arr}
-};
+std::vector<int> v{1, 2, 3};
+sj::json j(v);                           // [1, 2, 3]
+
+std::map<std::string, int> m{{"a", 1}};
+sj::json j2(m);                          // {"a": 1}
 ```
 
 ### Accessing data
 
-Basic access:
+Type queries:
 
 ```cpp
-double pi = j["pi"].as_number();      // or to_double()
-bool happy = j["happy"].as_boolean();
-std::string name = j["name"].as_string();
+j.is_null();     j.is_boolean();   j.is_integer();
+j.is_number();   j.is_string();    j.is_array();
+j.is_object();
 ```
 
-Integer vs floating-point:
+Direct accessors (use after a type guard):
 
 ```cpp
-if (j["answer"]["everything"].is_integer()) {
-    auto n = j["answer"]["everything"].as_integer(); // 42
-}
-double n_as_double = j["answer"]["everything"].as_number(); // 42.0
+double pi     = j["pi"].as_number();
+bool happy    = j["happy"].as_boolean();
+std::string s = j["name"].as_string();
+int64_t n     = j["answer"].as_integer();
+```
+
+Safe access with `get<T>()` returning `std::expected`:
+
+```cpp
+auto name = j["name"].get<std::string>();  // expected<string, error>
+if (name)
+    std::cout << *name << "\n";
+```
+
+Safe lookup with `at()` returning `std::expected`:
+
+```cpp
+auto val = j.at("key");      // expected<json const&, error>
+auto el  = j.at(std::size_t{0});   // expected<json const&, error>
 ```
 
 Safe conversions with defaults:
 
 ```cpp
-double pi = j.value_or("pi", 0.0);
-int answer = j["answer"].value_or("everything", -1);
-std::string title = j.value_or<std::string>("title", "untitled");
-bool flag = j.value_or("flag", false);
-```
-
-Containment checks:
-
-```cpp
-if (j.contains("pi")) {
-    // key exists in object
-}
-
-if (j["list"].contains(0)) {
-    // index is valid in array
-}
+double pi     = j.value_or("pi", 0.0);
+int answer    = j["answer"].value_or("everything", -1);
+std::string s = j.value_or<std::string>("title", "untitled");
 ```
 
 ### Container-like operations
-
-`sj::json` behaves similarly to a standard container for arrays and objects.
 
 Array operations:
 
 ```cpp
 sj::json j;              // null
-j.push_back("foo");      // j becomes an array
+j.push_back("foo");      // j becomes ["foo"]
 j.push_back(1);
-j.push_back(true);
-j.emplace_back(1.78);
+j.emplace_back(3.14);
 
-for (auto it = j.begin(); it != j.end(); ++it) {
-    std::cout << *it << '\n';
-}
-
-for (auto& element : j) {
-    std::cout << element << '\n';
-}
-
-auto s = j[0].get<sj::json::string_type>();    // "foo"
-j[1] = 42;
-bool flag = j.at(2).get<bool>();               // explicit get<bool>()
-
-std::size_t n = j.size();   // 4
-bool e = j.empty();         // false
-sj::value_t t = j.type();   // sj::value_t::array
-j.clear();                  // becomes empty array (or null for scalars)
+j.size();     // 3
+j.empty();    // false
+j.clear();    // empties the array
 ```
 
 Object operations:
@@ -168,120 +142,185 @@ Object operations:
 ```cpp
 sj::json o;
 o["foo"] = 23;
-o["bar"] = false;
-o["baz"] = 3.141;
-o.emplace("weather", "sunny");
+o.emplace("bar", "hello");
 
-// iterate with key() / value()
-for (auto it = o.begin(); it != o.end(); ++it) {
-    std::cout << it.key() << " : " << it.value() << "\n";
-}
-
-// items() view
-for (auto item : o.items()) {
-    std::cout << item.key() << " : " << item.value() << "\n";
-}
-
-// structured bindings
-for (auto [key, value] : o.items()) {
-    std::cout << key << " : " << value << "\n";
-}
-
-if (o.contains("foo")) { /* key exists */ }
-if (o.find("foo") != o.end()) { /* found via iterator */ }
-
-auto count_foo = o.count("foo"); // 1
-o.erase("foo");                  // remove entry if present
+o.contains("foo");              // true
+o.find("foo") != o.end();      // true
+o.count("foo");                 // 1
+o.erase("foo");
 ```
 
-### Implicit conversions into `sj::json`
-
-Fundamental types can be implicitly converted *to* `sj::json`, but not the other way around (use `get<T>()` to extract values).
+Iteration:
 
 ```cpp
-// strings
-std::string s1 = "Hello, world!";
-sj::json js = s1;                          // OK
-auto s2 = js.get<std::string>();           // extract as string
-// std::string s3 = js;                    // not allowed
+// range-for over array or object values
+for (auto const& el : j)
+    std::cout << el << "\n";
 
-// booleans
-bool b1 = true;
-sj::json jb = b1;                          // OK
-auto b2 = jb.get<bool>();                  // extract as bool
-// bool b3 = jb;                           // not allowed
+// key/value iteration via items()
+for (auto [key, value] : o.items())
+    std::cout << key << ": " << value << "\n";
 
-// integers and floating-point numbers
-int i = 42;
-sj::json jn = i;                           // OK
-auto f = jn.get<double>();                 // extract as double
-// double f2 = jn;                         // not allowed
-
-// chars become integer numbers, not strings
-char ch = 'A';                             // ASCII 65
-sj::json j_default = ch;                   // stores integer 65
+// iterator with key()/value()
+for (auto it = o.begin(); it != o.end(); ++it)
+    std::cout << it.key() << ": " << it.value() << "\n";
 ```
 
-### STL container conversions
-
-`sj::json` can be constructed directly from many STL containers:
-
-- Sequence / set-like containers become JSON arrays (order follows container iteration):
+### Serialization
 
 ```cpp
-std::vector<int> c_vector {1, 2, 3, 4};
-sj::json j_vec(c_vector); // [1, 2, 3, 4]
+std::string pretty  = j.dump(2);   // indented
+std::string compact = j.dump(0);   // one line
 
-std::deque<double> c_deque {1.2, 2.3, 3.4, 5.6};
-sj::json j_deque(c_deque); // [1.2, 2.3, 3.4, 5.6]
+std::cout << j << "\n";            // compact via operator<<
+```
 
-std::list<bool> c_list {true, true, false, true};
-sj::json j_list(c_list); // [true, true, false, true]
+Both `dump()` and `operator<<` produce valid JSON that round-trips through `sj::parse`.
 
-std::forward_list<std::int64_t> c_flist {
-    12345678909876LL, 23456789098765LL, 34567890987654LL, 45678909876543LL
+### Struct ↔ JSON via reflection
+
+Any aggregate struct is automatically serializable and deserializable — no macros, no registration, no boilerplate:
+
+```cpp
+struct Point { int x; int y; };
+
+Point p{10, 20};
+sj::json j = sj::to_json(p);           // {"x": 10, "y": 20}
+
+auto result = sj::from_json<Point>(j);  // expected<Point, error>
+if (result)
+    std::cout << result->x << "\n";     // 10
+```
+
+Nested structs, containers, optionals — all handled recursively:
+
+```cpp
+struct Address { std::string city; int zip; };
+struct Person {
+    std::string name;
+    int age;
+    Address address;
+    std::vector<std::string> tags;
+    std::optional<double> rating;
 };
-sj::json j_flist(c_flist); // [12345678909876, 23456789098765, 34567890987654, 45678909876543]
 
-std::array<unsigned long, 4> c_array {{1, 2, 3, 4}};
-sj::json j_array(c_array); // [1, 2, 3, 4]
+Person alice{"Alice", 30, {"NYC", 10001}, {"dev", "lead"}, 4.8};
+sj::json j = sj::to_json(alice);
+auto p = sj::from_json<Person>(j);  // round-trips perfectly
 ```
 
-- Set-like containers (`std::set`, `std::multset`, `std::unordered_set`,
-  `std::unordered_multiset`) also become arrays; multiplicity follows
-  the container (sets deduplicate, multisets keep duplicates).
-
-- Map-like containers become JSON objects when the key can be converted
-  to `std::string` and the value is JSON-convertible:
+Missing required fields produce errors with a JSON-path trace:
 
 ```cpp
-std::map<std::string, int> c_map {{"one", 1}, {"two", 2}, {"three", 3}};
-sj::json j_map(c_map); // {"one":1, "three":3, "two":2}
+auto bad = sj::parse(R"({"name": "Bob", "address": {"city": "LA"}})");
+auto r = sj::from_json<Person>(*bad);
+// r.error().path == "address.zip"
+// r.error().message == "missing field 'zip'"
+```
 
-std::unordered_map<const char*, double> c_umap {
-    {"one", 1.2}, {"two", 2.3}, {"three", 3.4}
+Missing `std::optional` fields are silently set to `std::nullopt`.
+
+### Enum serialization via reflection
+
+Scoped enums are serialized by name, deserialized by name matching:
+
+```cpp
+enum class Color { Red, Green, Blue };
+
+sj::json j = sj::to_json(Color::Green);   // "Green"
+
+auto c = sj::from_json<Color>(j);          // Color::Green
+```
+
+### STL type support
+
+Containers are detected by capability (concepts), not by name — any container that satisfies the right interface works automatically, including `std::inplace_vector`, `std::hive`, `std::flat_map`, etc.
+
+| C++ type | JSON representation |
+|---|---|
+| `std::vector<T>`, `std::deque<T>`, `std::list<T>`, `std::set<T>`, ... | JSON array |
+| `std::map<string, T>`, `std::unordered_map<string, T>`, ... | JSON object |
+| `std::array<T, N>` | JSON array (size-checked on deserialization) |
+| `std::optional<T>` | `null` or the contained value |
+| `std::tuple<Ts...>`, `std::pair<A, B>` | JSON array (positional) |
+| `std::variant<Ts...>` | `{"_type": "...", "_value": ...}` (tagged) |
+| `std::unique_ptr<T>`, `std::shared_ptr<T>` | `null` or the pointed-to value |
+
+### Compile-time JSON parsing
+
+JSON string literals can be parsed at compile time into statically-typed C++ aggregates:
+
+```cpp
+using namespace sj::literals;
+
+constexpr auto cfg = R"({
+    "host": "0.0.0.0",
+    "port": 8080,
+    "debug": false
+})"_json;
+
+static_assert(cfg.value().port == 8080);
+static_assert(cfg.value().debug == false);
+
+// Nested objects work too
+constexpr auto nested = R"({
+    "server": {"host": "localhost", "port": 443}
+})"_json;
+static_assert(nested.value().server.port == 443);
+```
+
+The same `_json` literal implicitly converts to `sj::json` at runtime:
+
+```cpp
+sj::json j = R"({"x": 1, "y": 2})"_json;  // runtime sj::json
+```
+
+### Custom serialization (ADL)
+
+Override `to_json`/`from_json` for any type by providing overloads in your type's namespace:
+
+```cpp
+namespace mylib {
+    struct Special { int data; };
+
+    sj::json to_json(Special const& s) {
+        return sj::json(s.data * 2);  // custom encoding
+    }
+}
+```
+
+User-provided overloads take priority over the reflection-based fallback.
+
+### Error handling
+
+All fallible operations return `std::expected`. No exceptions are thrown.
+
+```cpp
+auto r = sj::parse(input)
+    .and_then([](sj::json const& j) { return sj::from_json<Config>(j); })
+    .transform([](Config const& c) { return c.port; });
+
+if (r) listen(*r);
+else   log(r.error().message);
+```
+
+Errors carry structured diagnostics:
+
+```cpp
+struct sj::error {
+    error_kind kind;     // parse, type, missing, conversion, overflow
+    std::string message; // human-readable description
+    std::string path;    // JSON-path breadcrumb, e.g. "server.host"
 };
-sj::json j_umap(c_umap); // {"one":1.2, "two":2.3, "three":3.4}
 ```
 
-For multi-map containers, only one value per key is kept in the JSON
-object; which one depends on the container’s iteration order.
+## Compatibility
 
-### Pretty-printing and streaming
+| Requirement | Value |
+|---|---|
+| Standard | C++26 with P2996 reflection |
+| Compiler | GCC 16+ with `-freflection` |
+| Dependencies | None (standard library only) |
+| Headers | Single header: `simple_json.hpp` |
 
-To get a JSON string:
-
-```cpp
-std::string pretty = j.dump(2);  // indented
-std::string compact = j.dump(0); // one line
-```
-
-`sj::json` also supports streaming:
-
-```cpp
-#include <iostream>
-
-std::cout << j << "\n"; // compact JSON
-```
-
-Both `dump()` and `operator<<` produce valid JSON that can be parsed again with `sj::parse`.
+This library targets the bleeding edge. No backward compatibility with C++23 or earlier is provided.
