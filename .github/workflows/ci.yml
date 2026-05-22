@@ -8,20 +8,84 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install g++-13 (C++23)
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-13
+          sudo apt-get install -y build-essential flex bison libgmp-dev \
+            libmpfr-dev libmpc-dev texinfo wget tar xz-utils
 
-      - name: Build all targets
-        run: make CC=g++-13
+      - name: Cache GCC 16 (reflection)
+        id: cache-gcc
+        uses: actions/cache@v4
+        with:
+          path: /opt/gcc-16
+          key: gcc-16-reflection-v2
 
-      - name: Run json_test
-        run: ./json_test
+      - name: Build GCC 16 with -freflection support
+        if: steps.cache-gcc.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          cd /tmp
 
+          # Fetch GCC trunk snapshot (16.x development)
+          GCC_VERSION="16.1.0"
+          wget -q "https://gcc.gnu.org/pub/gcc/releases/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz" \
+            || wget -q "https://gcc.gnu.org/pub/gcc/snapshots/LATEST-16/gcc-16-$(date +%Y%m%d).tar.xz" -O gcc-src.tar.xz \
+            || { echo "Trying git clone..."; \
+                 git clone --depth=1 --branch=releases/gcc-16 https://gcc.gnu.org/git/gcc.git gcc-src-dir; }
+
+          # Extract if downloaded tarball
+          if [ -f "gcc-${GCC_VERSION}.tar.xz" ]; then
+            tar xf "gcc-${GCC_VERSION}.tar.xz"
+            mv "gcc-${GCC_VERSION}" gcc-src-dir
+          elif [ -f "gcc-src.tar.xz" ]; then
+            tar xf gcc-src.tar.xz
+            mv gcc-16-* gcc-src-dir
+          fi
+
+          cd gcc-src-dir
+          ./contrib/download_prerequisites
+
+          mkdir -p build && cd build
+          ../configure \
+            --prefix=/opt/gcc-16 \
+            --enable-languages=c,c++ \
+            --disable-multilib \
+            --disable-bootstrap \
+            --disable-libsanitizer \
+            --disable-libvtv \
+            --with-system-zlib
+          make -j$(nproc)
+          make install
+
+      - name: Build tests
+        run: |
+          export PATH="/opt/gcc-16/bin:$PATH"
+          export LD_LIBRARY_PATH="/opt/gcc-16/lib64:$LD_LIBRARY_PATH"
+          make test CC=/opt/gcc-16/bin/g++
+
+      - name: Build demos
+        run: |
+          export PATH="/opt/gcc-16/bin:$PATH"
+          export LD_LIBRARY_PATH="/opt/gcc-16/lib64:$LD_LIBRARY_PATH"
+          make demos CC=/opt/gcc-16/bin/g++
+
+      - name: Run demos
+        run: |
+          export LD_LIBRARY_PATH="/opt/gcc-16/lib64:$LD_LIBRARY_PATH"
+          echo "=== basic ===" && ./demo_basic
+          echo "=== reflection ===" && ./demo_reflection
+          echo "=== compile_time ===" && ./demo_compile_time
+          echo "=== containers ===" && ./demo_containers
+          echo "=== game_config ===" && ./demo_game_config
+          echo "=== enum_flags ===" && ./demo_enum_flags
+          echo "=== schema_evolution ===" && ./demo_schema_evolution
+          echo "=== error_handling ===" && ./demo_error_handling
+          echo "=== rest_api ===" && ./demo_rest_api
