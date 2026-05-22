@@ -99,6 +99,9 @@ template <typename... Ts> json to_json(std::tuple<Ts...> const& t);
 template <typename A, typename B> json to_json(std::pair<A, B> const& p);
 template <typename... Ts> json to_json(std::variant<Ts...> const& v);
 
+// Forward declarations for detail::from_json_impl (see implementations below)
+namespace detail {
+
 inline std::expected<json, error> from_json_impl(json const& j, std::type_identity<json>);
 inline std::expected<bool, error> from_json_impl(json const& j, std::type_identity<bool>);
 inline std::expected<std::string, error> from_json_impl(json const& j, std::type_identity<std::string>);
@@ -139,11 +142,11 @@ std::expected<std::pair<A, B>, error> from_json_impl(json const& j, std::type_id
 template <typename... Ts>
 std::expected<std::variant<Ts...>, error> from_json_impl(json const& j, std::type_identity<std::variant<Ts...>>);
 
-// Unified from_json entry point
+} // namespace detail
+
+// from_json<T>() defined after all from_json_impl implementations (see below)
 template <typename T>
-std::expected<T, error> from_json(json const& j) {
-    return from_json_impl(j, std::type_identity<T>{});
-}
+std::expected<T, error> from_json(json const& j);
 
 // ============================================================================
 // Detail helpers
@@ -209,7 +212,9 @@ concept FixedSizeSequence = requires { std::tuple_size<C>::value; }
 template <SequenceSerializable C> json to_json(C const& seq);
 template <MappingSerializable C> json to_json(C const& m);
 
-// Deserializable containers via from_json_impl
+// Deserializable container forward declarations (in detail)
+namespace detail {
+
 template <typename C>
     requires SequenceSerializable<C> && BackInsertable<C>
              && (!FixedSizeSequence<C>)
@@ -226,6 +231,8 @@ std::expected<C, error> from_json_impl(json const& j, std::type_identity<C>);
 
 template <typename T, std::size_t N>
 std::expected<std::array<T, N>, error> from_json_impl(json const& j, std::type_identity<std::array<T, N>>);
+
+} // namespace detail
 
 // ============================================================================
 // json class
@@ -1263,8 +1270,10 @@ json to_json(T const& obj) {
 }
 
 // ============================================================================
-// from_json implementations
+// from_json implementations (detail)
 // ============================================================================
+
+namespace detail {
 
 // Identity
 inline std::expected<json, error> from_json_impl(json const& j, std::type_identity<json>) {
@@ -1544,7 +1553,15 @@ std::expected<T, error> from_json_impl(json const& j, std::type_identity<T>) {
     return obj;
 }
 
-// ============================================================================
+} // namespace detail
+
+// Unified from_json entry point (public API)
+// Defined here so all detail::from_json_impl overloads are visible.
+template <typename T>
+std::expected<T, error> from_json(json const& j) {
+    return detail::from_json_impl(j, std::type_identity<T>{});
+}
+
 // ============================================================================
 // Stream operator
 // ============================================================================
@@ -1558,7 +1575,7 @@ inline std::ostream& operator<<(std::ostream& os, json const& j) {
 // Compile-time JSON parser
 // ============================================================================
 
-namespace ct {
+namespace detail::ct {
 
 template <std::meta::info ...Ms>
 struct Outer {
@@ -1802,13 +1819,13 @@ struct json_literal {
     }
 };
 
-} // namespace ct
+} // namespace detail::ct
 
 namespace literals {
 
-template <ct::json_string JS>
+template <detail::ct::json_string JS>
 consteval auto operator""_json() {
-    return ct::json_literal<([:JS.rep:])>{};
+    return detail::ct::json_literal<([:JS.rep:])>{};
 }
 
 } // namespace literals
