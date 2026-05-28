@@ -24,9 +24,71 @@ This produces:
 
 ## Features & Examples
 
+### User this library via the `sj` namespace:
+
+```cpp
+#include "simple_json.hpp"
+using namespace sj;
+```
+
 ### The `sj::json` data type
 
 `sj::json` represents any JSON value: null, boolean, integer (64-bit), floating-point (double), string, array, or object.
+
+### Struct ↔ JSON via reflection
+
+Any aggregate struct is automatically serializable and deserializable — no macros, no registration, no boilerplate:
+
+```cpp
+struct Point { int x; int y; };
+
+Point p{10, 20};
+sj::json j = sj::to_json(p);           // {"x": 10, "y": 20}
+
+auto result = sj::from_json<Point>(j);  // expected<Point, error>
+if (result)
+    std::cout << result->x << "\n";     // 10
+```
+
+Nested structs, containers, optionals — all handled recursively:
+
+```cpp
+struct Address { std::string city; int zip; };
+struct Person {
+    std::string name;
+    int age;
+    Address address;
+    std::vector<std::string> tags;
+    std::optional<double> rating;
+};
+
+Person alice{"Alice", 30, {"NYC", 10001}, {"dev", "lead"}, 4.8};
+sj::json j = sj::to_json(alice);
+auto p = sj::from_json<Person>(j);  // round-trips perfectly
+```
+
+Missing required fields produce errors with a JSON-path trace:
+
+```cpp
+auto bad = sj::parse(R"({"name": "Bob", "address": {"city": "LA"}})");
+auto r = sj::from_json<Person>(*bad);
+// r.error().path == "address.zip"
+// r.error().message == "missing field 'zip'"
+```
+
+Missing `std::optional` fields are silently set to `std::nullopt`.
+
+### Enum serialization via reflection
+
+Scoped enums are serialized by name, deserialized by name matching:
+
+```cpp
+enum class Color { Red, Green, Blue };
+
+sj::json j = sj::to_json(Color::Green);   // "Green"
+
+auto c = sj::from_json<Color>(j);          // Color::Green
+```
 
 ### Parsing JSON
 
@@ -176,61 +238,6 @@ std::cout << j << "\n";            // compact via operator<<
 ```
 
 Both `dump()` and `operator<<` produce valid JSON that round-trips through `sj::parse`.
-
-### Struct ↔ JSON via reflection
-
-Any aggregate struct is automatically serializable and deserializable — no macros, no registration, no boilerplate:
-
-```cpp
-struct Point { int x; int y; };
-
-Point p{10, 20};
-sj::json j = sj::to_json(p);           // {"x": 10, "y": 20}
-
-auto result = sj::from_json<Point>(j);  // expected<Point, error>
-if (result)
-    std::cout << result->x << "\n";     // 10
-```
-
-Nested structs, containers, optionals — all handled recursively:
-
-```cpp
-struct Address { std::string city; int zip; };
-struct Person {
-    std::string name;
-    int age;
-    Address address;
-    std::vector<std::string> tags;
-    std::optional<double> rating;
-};
-
-Person alice{"Alice", 30, {"NYC", 10001}, {"dev", "lead"}, 4.8};
-sj::json j = sj::to_json(alice);
-auto p = sj::from_json<Person>(j);  // round-trips perfectly
-```
-
-Missing required fields produce errors with a JSON-path trace:
-
-```cpp
-auto bad = sj::parse(R"({"name": "Bob", "address": {"city": "LA"}})");
-auto r = sj::from_json<Person>(*bad);
-// r.error().path == "address.zip"
-// r.error().message == "missing field 'zip'"
-```
-
-Missing `std::optional` fields are silently set to `std::nullopt`.
-
-### Enum serialization via reflection
-
-Scoped enums are serialized by name, deserialized by name matching:
-
-```cpp
-enum class Color { Red, Green, Blue };
-
-sj::json j = sj::to_json(Color::Green);   // "Green"
-
-auto c = sj::from_json<Color>(j);          // Color::Green
-```
 
 ### STL type support
 
